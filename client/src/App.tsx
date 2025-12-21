@@ -9,6 +9,11 @@ import AuthLayout from "./layouts/AuthLayout";
 import DashboardLayout from "./layouts/DashboardLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import './style/Dashboard.css';
+import './pages/ManageUsers'
+import './pages/Reports'
+import Reports from "./pages/Reports";
+import Profile from "./pages/Profile";
+
 
 
 export default function AppRoutes() {
@@ -22,6 +27,7 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardLayout />
+            <Login/>
           </ProtectedRoute>
         }
       >
@@ -30,6 +36,9 @@ export default function AppRoutes() {
         <Route path="/tickets" element={<MyTickets />} />
         <Route path="/tickets/:id" element={<TicketDetails />} />
         <Route path="/admin/users" element={<ManageUsers />} />
+        <Route path="/manager/reports" element={<Reports/>} />
+        <Route path="/profile/:id" element={<Profile/>} />
+
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

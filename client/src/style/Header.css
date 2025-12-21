@@ -24,6 +24,10 @@
   height: var(--header-height);
   padding: 0 24px;
   gap: 24px;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 8px;
+  font-family: Arial;
 }
 
 /* ========== HEADER LEFT ========== */
@@ -211,20 +215,20 @@
 .header-profile-btn {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 12px 6px 6px;
-  background: var(--ooredoo-bg-light);
+  gap: 6px; /* Reduced from 8px */
+  padding: 4px 8px 4px 4px; /* Reduced right padding */
+  background: transparent;
   border: none;
-  border-radius: 12px;
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  min-width: 0;
+  transition: all var(--transition-base);
+  height: 40px;
 }
 
 .header-profile-btn:hover {
-  background: var(--ooredoo-grey-lightest);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  background: var(--ooredoo-bg-light);
 }
+
 
 .profile-avatar {
   width: 36px;
@@ -243,30 +247,38 @@
   height: 48px;
   min-width: 48px;
 }
-
 .profile-info {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  min-width: 0;
+  display: grid;
+  grid-template-rows: auto auto;
+  align-items: start;
+  max-width: 120px;
+  line-height: 1;
+  height: 40px;
+  flex-wrap: nowrap;
+  gap: 10px;
 }
 
 .profile-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ooredoo-grey-dark);
-  font-family: 'Futura', Arial, sans-serif;
+  font-size: 14px !important;
+  height: auto !important;
+  line-height: 1.2 !important;
+  font-weight: 500;
+  max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 150px;
+  display: block;
+  margin-bottom: -2px !important;
 }
 
 .profile-role {
-  font-size: 12px;
+  font-size: 9px; /* Reduced from 10px */
+  font-weight: 600;
   color: var(--ooredoo-grey-medium);
   font-family: 'Futura', Arial, sans-serif;
+  text-transform: capitalize;
+  line-height: 1;
+  margin-top: 0 !important;
 }
 
 /* ========== DROPDOWN MENUS ========== */
@@ -506,17 +518,23 @@
 }
 
 /* ========== RESPONSIVE ========== */
-@media (max-width: 1024px) {
-  .header-container {
-    padding: 0 20px;
-  }
-  
+@media (max-width: 768px) {
   .profile-name {
-    max-width: 100px;
+    font-size: 11px;
   }
-  
-  .header-title {
-    font-size: 18px;
+
+  .profile-role {
+    font-size: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .profile-name {
+    font-size: 10px;
+  }
+
+  .profile-role {
+    font-size: 8px;
   }
 }
 

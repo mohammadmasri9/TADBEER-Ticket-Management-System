@@ -2,6 +2,7 @@
 import React from 'react';
 import '../style/Footer.css';
 import { Heart, Mail, Phone, MapPin } from 'lucide-react';
+import tadbeerLogo from '../assets/images/tadbeer-logo.png';
 
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -13,8 +14,9 @@ const Footer: React.FC = () => {
           {/* Company Info */}
           <div className="footer-section">
             <div className="footer-logo">
-              <div className="logo-icon">📋</div>
-              <span className="logo-text">Tadbeer</span>
+            <div className="logo-icon">
+              <img src={tadbeerLogo} alt="Logo" />
+            </div>              
             </div>
             <p className="footer-description">
               Professional ticket management system powered by Ooredoo technology.
@@ -71,7 +73,7 @@ const Footer: React.FC = () => {
         {/* Footer Bottom */}
         <div className="footer-bottom">
           <p className="footer-copyright">
-            © {currentYear} Tadbeer. Made with <Heart size={14} fill="currentColor" /> by Mohammad Almasr
+            © {currentYear} Tadbeer. Made with <Heart size={14} fill="currentColor" /> by Mohammad Almasri
           </p>
           <div className="footer-bottom-links">
             <a href="/privacy">Privacy Policy</a>

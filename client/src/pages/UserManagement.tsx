@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext'; // Adjust path as needed
 import Footer from '../components/Footer';
 import '../style/UserManagement.css';
 import { 
@@ -20,8 +19,7 @@ import {
   UserCheck,
   Users,
   UserPlus,
-  Activity,
-  Lock
+  Activity
 } from 'lucide-react';
 
 interface User {
@@ -39,44 +37,10 @@ interface User {
 }
 
 const UserManagement: React.FC = () => {
-  const { user } = useAuth();
-  
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [filterOpen, setFilterOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRole, setSelectedRole] = useState('all');
-
-  // Role-based access check
-  if (user?.role !== "admin") {
-    return (
-      <div className="user-management-page">
-        <div className="user-management-content">
-          <div className="access-denied-container">
-            <div className="access-denied-card">
-              <div className="access-denied-icon">
-                <Lock size={64} />
-              </div>
-              <h2 className="access-denied-title">Access Restricted</h2>
-              <p className="access-denied-message">
-                You don't have permission to access this page. User management is only available for administrators.
-              </p>
-              <div className="access-denied-info">
-                <p className="info-label">Your Current Role:</p>
-                <span className="role-badge">{user?.role || 'Guest'}</span>
-              </div>
-              <button 
-                className="back-btn"
-                onClick={() => window.history.back()}
-              >
-                Go Back
-              </button>
-            </div>
-          </div>
-        </div>
-        <Footer />
-      </div>
-    );
-  }
 
   // Sample user data
   const allUsers: User[] = [
