@@ -1,21 +1,15 @@
+export type TicketStatus = "open" | "in-progress" | "pending" | "resolved" | "closed";
+export type TicketPriority = "low" | "medium" | "high" | "urgent";
+
 export interface Ticket {
-  id: string;
+  _id: string;
   title: string;
   description: string;
-  status: "new" | "ongoing" | "resolved";
-  priority?: "high" | "normal" | "low";
-  author: {
-    id: string;
-    name: string;
-    avatar?: string;
-  };
+  category: string;
+  priority: TicketPriority;
+  status: TicketStatus;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface TicketFilters {
-  status?: Ticket["status"];
-  priority?: Ticket["priority"];
-  timeframe?: "week" | "month" | "quarter";
-  search?: string;
+  createdBy?: any;
+  assignee?: any;
 }

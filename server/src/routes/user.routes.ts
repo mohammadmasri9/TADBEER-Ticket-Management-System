@@ -1,0 +1,58 @@
+// server/src/routes/users.routes.ts
+import { Router } from "express";
+import { z } from "zod";
+import User from "../models/User.model";
+import { requireAuth, requireRole } from "../middlewares/auth.middleware";
+
+const router = Router();
+
+// Admin-only endpoints
+router.use(requireAuth, requireRole("admin"));
+
+const updateUserSchema = z.object({
+  name: z.string().min(2).optional(),
+  role: z.enum(["user", "agent", "admin"]).optional(),
+  department: z.string().optional(),
+  status: z.enum(["available", "busy", "offline"]).optional(),
+  phone: z.string().optional(),
+  expertise: z.array(z.string()).optional(),
+});
+
+// GET /api/users
+router.get("/", async (_req, res) => {
+  const users = await User.find().select("-passwordHash").sort({ createdAt: -1 });
+  res.json(users);
+});
+
+// GET /api/users/:id
+router.get("/:id", async (req, res) => {
+  const user = await User.findById(req.params.id).select("-passwordHash");
+  if (!user) return res.status(404).json({ message: "User not found" });
+  res.json(user);
+});
+
+// PUT /api/users/:id
+router.put("/:id", async (req, res) => {
+  try {
+    const data = updateUserSchema.parse(req.body);
+
+    const user = await User.findByIdAndUpdate(req.params.id, data, {
+      new: true,
+    }).select("-passwordHash");
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json(user);
+  } catch (err: any) {
+    if (err?.name === "ZodError") return res.status(400).json({ message: err.errors });
+    res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+// DELETE /api/users/:id
+router.delete("/:id", async (req, res) => {
+  const user = await User.findByIdAndDelete(req.params.id);
+  if (!user) return res.status(404).json({ message: "User not found" });
+  res.json({ message: "User deleted" });
+});
+
+export default router;
