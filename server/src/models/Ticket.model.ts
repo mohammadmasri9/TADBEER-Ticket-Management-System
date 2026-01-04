@@ -30,7 +30,7 @@ export interface ITicket extends Document {
   estimatedTime?: number;
   actualTime?: number;
 
-  embedding?: number[]; // optional for AI
+  embedding?: number[];
   resolution?: string;
   satisfactionRating?: number;
 
@@ -56,7 +56,11 @@ const TicketSchema = new Schema<ITicket>(
     title: { type: String, required: true, trim: true, maxlength: 200 },
     description: { type: String, required: true, trim: true, maxlength: 5000 },
 
-    category: { type: String, required: true, enum: ["Technical", "Security", "Feature", "Account", "Bug"] },
+    category: {
+      type: String,
+      required: true,
+      enum: ["Technical", "Security", "Feature", "Account", "Bug"],
+    },
     priority: { type: String, enum: ["low", "medium", "high", "urgent"], default: "medium" },
     status: { type: String, enum: ["open", "in-progress", "pending", "resolved", "closed"], default: "open" },
 
@@ -79,11 +83,14 @@ const TicketSchema = new Schema<ITicket>(
   { timestamps: true }
 );
 
-// Indexes for performance
+// Indexes
 TicketSchema.index({ status: 1, priority: 1, createdAt: -1 });
 TicketSchema.index({ assignee: 1, status: 1 });
 TicketSchema.index({ createdBy: 1, status: 1 });
 TicketSchema.index({ category: 1, createdAt: -1 });
 
-const Ticket: Model<ITicket> = mongoose.models.Ticket || mongoose.model<ITicket>("Ticket", TicketSchema);
+// ✅ FIX: force collection name to match MongoDB Compass collection "Tickets"
+const Ticket: Model<ITicket> =
+  mongoose.models.Ticket || mongoose.model<ITicket>("Ticket", TicketSchema, "Tickets");
+
 export default Ticket;

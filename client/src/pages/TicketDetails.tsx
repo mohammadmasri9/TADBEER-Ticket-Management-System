@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import Footer from "../components/Footer";
+import "../style/TicketDetails.css";
 
 type Ticket = {
   id: string;
@@ -31,95 +33,82 @@ export default function TicketDetails() {
     setComment("");
   };
 
+  // Get priority class
+  const getPriorityClass = (priority: string) => {
+    return `ticket-chip priority-${priority}`;
+  };
+
+  // Get status class
+  const getStatusClass = (status: string) => {
+    return `ticket-chip status-${status}`;
+  };
+
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <h2 style={{ margin: 0 }}>Ticket #{ticket.id}</h2>
-
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, display: "grid", gap: 8 }}>
-        <div style={{ fontWeight: 900, fontSize: 18 }}>{ticket.title}</div>
-        <div style={{ color: "#374151" }}>{ticket.description}</div>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 6 }}>
-          <Chip label={`Priority: ${ticket.priority}`} />
-          <Chip label={`Current status: ${status}`} />
+    <div className="ticket-details-page">
+      <div className="ticket-details-content">
+        {/* Header */}
+        <div className="ticket-details-header">
+          <h2 className="ticket-details-title">Ticket Details</h2>
+          <span className="ticket-id-badge">#{ticket.id}</span>
         </div>
 
-        <div style={{ marginTop: 10, display: "grid", gap: 8, maxWidth: 320 }}>
-          <label style={{ display: "grid", gap: 6 }}>
-            <span style={{ fontWeight: 800 }}>Update status</span>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as any)}
-              style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb" }}
-            >
-              <option value="open">open</option>
-              <option value="in-progress">in-progress</option>
-              <option value="closed">closed</option>
-              <option value="overdue">overdue</option>
-            </select>
-          </label>
+        {/* Main Info Card */}
+        <div className="ticket-info-card">
+          <div className="ticket-info-title">{ticket.title}</div>
+          <div className="ticket-info-description">{ticket.description}</div>
 
-          <button
-            onClick={() => alert(`Status updated to "${status}" (mock)`)}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid #111827",
-              background: "#111827",
-              color: "white",
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-          >
-            Save Status
+          <div className="ticket-badges-container">
+            <span className={getPriorityClass(ticket.priority)}>
+              Priority: {ticket.priority}
+            </span>
+            <span className={getStatusClass(status)}>
+              Status: {status}
+            </span>
+          </div>
+
+          <div className="status-update-section">
+            <label className="status-update-label">
+              <span className="status-update-label-text">Update Status</span>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value as any)}
+                className="status-update-select"
+              >
+                <option value="open">Open</option>
+                <option value="in-progress">In Progress</option>
+                <option value="closed">Closed</option>
+                <option value="overdue">Overdue</option>
+              </select>
+            </label>
+
+            <button
+              onClick={() => alert(`Status updated to "${status}" (mock)`)}
+              className="status-save-btn"
+            >
+              Save Status
+            </button>
+          </div>
+        </div>
+
+        {/* Comments Section */}
+        <div className="comments-card">
+          <h3 className="comments-title">Comments</h3>
+
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Write a comment..."
+            rows={4}
+            className="comment-textarea"
+          />
+
+          <button onClick={addComment} className="comment-add-btn">
+            Add Comment
           </button>
         </div>
       </div>
 
-      <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, display: "grid", gap: 10 }}>
-        <h3 style={{ margin: 0 }}>Comments</h3>
-
-        <textarea
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Write a comment..."
-          rows={4}
-          style={{ padding: 10, borderRadius: 10, border: "1px solid #e5e7eb" }}
-        />
-
-        <button
-          onClick={addComment}
-          style={{
-            width: 160,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid #e5e7eb",
-            background: "white",
-            fontWeight: 900,
-            cursor: "pointer",
-          }}
-        >
-          Add Comment
-        </button>
-      </div>
+      <Footer />
     </div>
-  );
-}
-
-function Chip({ label }: { label: string }) {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "6px 10px",
-        borderRadius: 999,
-        border: "1px solid #e5e7eb",
-        fontWeight: 800,
-        fontSize: 12,
-        background: "#fff",
-      }}
-    >
-      {label}
-    </span>
   );
 }
