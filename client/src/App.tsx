@@ -16,6 +16,8 @@ import CreateTicket from "../src/pages/CreateTicket";
 import AuthLayout from "../src/layouts/AuthLayout";
 import DashboardLayout from "../src/layouts/DashboardLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
+import Notifications from "../src/pages/Notifications";
+
 
 import "./style/Dashboard.css";
 
@@ -53,6 +55,7 @@ export default function AppRoutes() {
         {/* profile */}
         <Route path="profile/:id" element={<Profile />} />
       </Route>
+<Route path="/notifications" element={<Notifications />} />
 
       {/* fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -1,6 +1,11 @@
+// src/pages/Login.tsx
 import React, { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight } from "lucide-react";
+import "../style/Login.css";
+import tadbeerLogo from "../assets/images/tadbeer-logo.png";
+import ooredooLogo from "../assets/images/ooredoo-logo.png";
 
 export default function Login() {
   const { login } = useAuth();
@@ -9,6 +14,7 @@ export default function Login() {
 
   const [email, setEmail] = useState("manager@ooredoo.ps");
   const [password, setPassword] = useState("123456");
+  const [showPassword, setShowPassword] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -23,7 +29,6 @@ export default function Login() {
       await login({ email, password });
       nav(redirectTo, { replace: true });
     } catch (e: any) {
-      // Supports axios errors and normal thrown errors
       const msg =
         e?.response?.data?.message ||
         e?.message ||
@@ -36,144 +41,167 @@ export default function Login() {
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.card}>
-        <div style={styles.brandRow}>
-          <div style={styles.logoDot} />
-          <div>
-            <h1 style={styles.title}>TADBEER</h1>
-            <p style={styles.subTitle}>Sign in to continue</p>
+    <div className="login-page">
+      <div className="login-container">
+        {/* Left Side - Form */}
+        <div className="login-form-section">
+          <div className="login-form-wrapper">
+            {/* Brand Header */}
+            <div className="login-brand">
+              <img src={tadbeerLogo} alt="Tadbeer" className="login-logo" />
+            </div>
+
+            <div className="login-header-text">
+              <h1 className="login-title">Welcome Back</h1>
+              <p className="login-subtitle">Sign in to access your dashboard</p>
+            </div>
+
+            {/* Error Banner */}
+            {err && (
+              <div className="login-error-banner">
+                <AlertCircle size={18} />
+                <div className="error-content">
+                  <strong>Authentication Failed</strong>
+                  <p>{err}</p>
+                </div>
+                <button
+                  className="error-dismiss"
+                  onClick={() => setErr(null)}
+                  type="button"
+                  aria-label="Dismiss error"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            {/* Login Form */}
+            <form onSubmit={onSubmit} className="login-form">
+              <div className="form-group">
+                <label htmlFor="email" className="form-label">
+                  <Mail size={16} />
+                  Email Address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="name@company.com"
+                  autoComplete="email"
+                  className="form-input"
+                  required
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="password" className="form-label">
+                  <Lock size={16} />
+                  Password
+                </label>
+                <div className="password-input-wrapper">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="form-input"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    onClick={() => setShowPassword((p) => !p)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-options">
+                <label className="remember-me">
+                  <input type="checkbox" />
+                  <span>Remember me</span>
+                </label>
+                <button type="button" className="forgot-password">
+                  Forgot password?
+                </button>
+              </div>
+
+              <button type="submit" className="login-button" disabled={loading}>
+                {loading ? (
+                  <>
+                    <div className="spinner" />
+                    Signing in...
+                  </>
+                ) : (
+                  <>
+                    Sign In
+                    <ArrowRight size={18} />
+                  </>
+                )}
+              </button>
+            </form>
+
+            {/* Powered By */}
+            <div className="powered-by-footer">
+              <span>POWERED BY</span>
+              <img src={ooredooLogo} alt="Ooredoo" />
+            </div>
           </div>
         </div>
 
-        {err && <div style={styles.errorBox}>{err}</div>}
+        {/* Right Side - Branding */}
+        <div className="login-branding-section">
+          <div className="branding-overlay" />
+          <div className="branding-content">
+            <div className="branding-logo">
+              <img src={tadbeerLogo} alt="Tadbeer" />
+            </div>
 
-        <form onSubmit={onSubmit} style={styles.form}>
-          <label style={styles.label}>
-            <span style={styles.labelText}>Email</span>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@company.com"
-              autoComplete="email"
-              style={styles.input}
-            />
-          </label>
+            <h2 className="branding-title">Smart Ticketing Management</h2>
+            <p className="branding-description">
+              Streamline your support operations with our AI-powered ticketing system.
+              Manage, track, and resolve customer issues efficiently.
+            </p>
 
-          <label style={styles.label}>
-            <span style={styles.labelText}>Password</span>
-            <input
-              value={password}
-              type="password"
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              style={styles.input}
-            />
-          </label>
+            <div className="feature-list">
+              <div className="feature-item">
+                <div className="feature-icon">
+                  <CheckCircle size={20} />
+                </div>
+                <div className="feature-text">
+                  <h4>Real-time Analytics</h4>
+                  <p>Monitor performance with live dashboards</p>
+                </div>
+              </div>
 
-          <button type="submit" disabled={loading} style={styles.button}>
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
+              <div className="feature-item">
+                <div className="feature-icon">
+                  <CheckCircle size={20} />
+                </div>
+                <div className="feature-text">
+                  <h4>Smart Automation</h4>
+                  <p>AI-powered ticket routing and assignment</p>
+                </div>
+              </div>
 
-          <div style={styles.tip}>
-            Tip: use emails containing <b>admin</b> or <b>manager</b> to test roles.
+              <div className="feature-item">
+                <div className="feature-icon">
+                  <CheckCircle size={20} />
+                </div>
+                <div className="feature-text">
+                  <h4>Team Collaboration</h4>
+                  <p>Seamless communication across departments</p>
+                </div>
+              </div>
+            </div>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: "calc(100vh - 120px)",
-    display: "grid",
-    placeItems: "center",
-    padding: 20,
-    background:
-      "radial-gradient(1200px 600px at 10% 10%, rgba(237, 28, 36, 0.12), transparent 55%)," +
-      "radial-gradient(900px 500px at 90% 30%, rgba(65, 64, 66, 0.10), transparent 60%)," +
-      "#F1F2F2",
-  },
-  card: {
-    width: "100%",
-    maxWidth: 460,
-    borderRadius: 18,
-    background: "#FFFFFF",
-    border: "1px solid #E6E7E8",
-    boxShadow: "0 14px 40px rgba(0,0,0,0.08)",
-    padding: 18,
-  },
-  brandRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 14,
-  },
-  logoDot: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    background: "#ED1C24",
-    boxShadow: "0 10px 25px rgba(237, 28, 36, 0.25)",
-  },
-  title: {
-    margin: 0,
-    fontSize: 22,
-    letterSpacing: 1,
-    color: "#414042",
-    fontWeight: 900,
-  },
-  subTitle: {
-    margin: "4px 0 0",
-    fontSize: 13,
-    color: "#808285",
-  },
-  form: {
-    display: "grid",
-    gap: 12,
-  },
-  label: {
-    display: "grid",
-    gap: 6,
-  },
-  labelText: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#414042",
-  },
-  input: {
-    padding: "12px 12px",
-    borderRadius: 12,
-    border: "1px solid #D1D3D4",
-    outline: "none",
-    fontSize: 14,
-  },
-  button: {
-    padding: "12px 12px",
-    borderRadius: 12,
-    border: "none",
-    background: "#ED1C24",
-    color: "#FFFFFF",
-    fontWeight: 900,
-    cursor: "pointer",
-    boxShadow: "0 10px 25px rgba(237, 28, 36, 0.2)",
-    opacity: 1,
-  },
-  errorBox: {
-    background: "#FFE8EA",
-    border: "1px solid #F7B0B4",
-    color: "#A4000F",
-    padding: "10px 12px",
-    borderRadius: 12,
-    fontWeight: 700,
-    fontSize: 13,
-    marginBottom: 12,
-  },
-  tip: {
-    color: "#808285",
-    fontSize: 13,
-    marginTop: 4,
-  },
-};

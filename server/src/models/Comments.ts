@@ -32,8 +32,8 @@ const CommentAttachmentSchema = new Schema<ICommentAttachment>(
 
 const CommentSchema = new Schema<IComment>(
   {
-    ticketId: { type: Schema.Types.ObjectId, ref: "Ticket", required: true },
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    ticketId: { type: Schema.Types.ObjectId, ref: "Ticket", required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     content: { type: String, required: true, trim: true, maxlength: 5000 },
     attachments: { type: [CommentAttachmentSchema], default: [] },
     deletedAt: { type: Date, default: null },
@@ -44,5 +44,7 @@ const CommentSchema = new Schema<IComment>(
 CommentSchema.index({ ticketId: 1, createdAt: 1 });
 CommentSchema.index({ userId: 1, createdAt: -1 });
 
-const Comment: Model<IComment> = mongoose.models.Comment || mongoose.model<IComment>("Comment", CommentSchema);
+const Comment: Model<IComment> =
+  mongoose.models.Comment || mongoose.model<IComment>("Comment", CommentSchema);
+
 export default Comment;

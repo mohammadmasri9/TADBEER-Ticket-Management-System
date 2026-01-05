@@ -84,3 +84,7 @@ export async function deleteUser(id: string): Promise<{ message: string }> {
   const res = await api.delete(`/api/users/${id}`);
   return res.data as { message: string };
 }
+export async function getMyProfile(id: string): Promise<UserDTO> {
+  const res = await api.get<UserDTO>(`/api/users/${id}`);
+  return res.data;
+}

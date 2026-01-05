@@ -1,6 +1,6 @@
 // server/src/routes/notification.routes.ts
 import { Router } from "express";
-import Notification from "../models/Notification.model";
+import Notification from "../models/Notification.model"; // ✅ adjust if your file name differs
 import { requireAuth } from "../middlewares/auth.middleware";
 
 const router = Router();
@@ -15,9 +15,7 @@ router.use(requireAuth);
 router.get("/", async (req: any, res) => {
   const userId = req.user.userId;
 
-  const notifications = await Notification.find({ userId })
-    .sort({ createdAt: -1 });
-
+  const notifications = await Notification.find({ userId }).sort({ createdAt: -1 });
   res.json(notifications);
 });
 
@@ -25,10 +23,7 @@ router.get("/", async (req: any, res) => {
 router.patch("/read-all", async (req: any, res) => {
   const userId = req.user.userId;
 
-  await Notification.updateMany(
-    { userId, isRead: false },
-    { isRead: true }
-  );
+  await Notification.updateMany({ userId, isRead: false }, { isRead: true });
 
   res.json({ message: "All notifications marked as read" });
 });
@@ -48,6 +43,22 @@ router.patch("/:id/read", async (req: any, res) => {
   }
 
   res.json(notif);
+});
+
+// ✅ DELETE /api/notifications/:id
+router.delete("/:id", async (req: any, res) => {
+  const userId = req.user.userId;
+
+  const deleted = await Notification.findOneAndDelete({
+    _id: req.params.id,
+    userId, // ✅ only owner can delete
+  });
+
+  if (!deleted) {
+    return res.status(404).json({ message: "Notification not found" });
+  }
+
+  res.json({ message: "Notification deleted" });
 });
 
 export default router;

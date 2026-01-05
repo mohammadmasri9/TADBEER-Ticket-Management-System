@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext'; // Adjust path as needed
-import Footer from '../components/Footer';
-import '../style/Profile.css';
-import { 
+import React, { JSX, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import Footer from "../components/Footer";
+import "../style/Profile.css";
+import {
   User,
   Mail,
   Phone,
@@ -15,7 +16,6 @@ import {
   Camera,
   Lock,
   Bell,
-  Globe,
   Briefcase,
   Award,
   Clock,
@@ -25,135 +25,272 @@ import {
   Settings,
   LogOut,
   Key,
-  Eye
-} from 'lucide-react';
+  Eye,
+  Loader2,
+} from "lucide-react";
 
-interface UserProfile {
-  id: string;
+import { getUserById, updateUser, UserDTO, UserRole, UserStatus } from "../../api/users";
+
+type Tab = "overview" | "security" | "preferences";
+
+type ProfileUI = {
+  _id: string;
   name: string;
   email: string;
   phone: string;
-  role: 'admin' | 'manager' | 'team-lead' | 'team-member';
+  role: UserRole;
   department: string;
   position: string;
   location: string;
   joinedDate: string;
   lastActive: string;
   bio: string;
-  avatar?: string;
+  status: UserStatus;
+  expertise: string[];
   stats: {
     ticketsCreated: number;
     ticketsResolved: number;
     avgResponseTime: string;
     satisfaction: string;
   };
-}
+};
 
 const Profile: React.FC = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+
+  // supports Mongo _id or id from auth context
+  const myId = (user as any)?._id || (user as any)?.id || (user as any)?.userId;
+  const profileId = id || myId;
+
+  const canEdit = useMemo(() => {
+    // user can edit self, admin can edit anyone
+    const role = (user as any)?.role;
+    if (!profileId) return false;
+    if (role === "admin") return true;
+    return String(profileId) === String(myId);
+  }, [profileId, myId, user]);
+
+  const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [isEditing, setIsEditing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'security' | 'preferences'>('overview');
 
-  // Sample user profile data
-  const [profile, setProfile] = useState<UserProfile>({
-    id: 'USR-001',
-    name: 'John Smith',
-    email: 'john.smith@tadbeer.com',
-    phone: '+972-599-123456',
-    role: (user?.role as UserProfile["role"]) || 'team-member',
-    department: 'IT Department',
-    position: 'Senior System Administrator',
-    location: 'Ramallah, Palestine',
-    joinedDate: '2024-01-15',
-    lastActive: '2025-12-21',
-    bio: 'Experienced IT professional with over 5 years in system administration and technical support. Passionate about solving complex technical challenges and improving team efficiency.',
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+  const showToast = (type: "ok" | "err", msg: string) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 1800);
+  };
+
+  const defaultProfile: ProfileUI = {
+    _id: profileId || "",
+    name: "",
+    email: "",
+    phone: "",
+    role: ((user as any)?.role as UserRole) || "user",
+    department: "",
+    position: "",
+    location: "",
+    joinedDate: "",
+    lastActive: "",
+    bio: "",
+    status: "available",
+    expertise: [],
     stats: {
-      ticketsCreated: 142,
-      ticketsResolved: 128,
-      avgResponseTime: '1.8h',
-      satisfaction: '4.9'
-    }
-  });
-
-  const [editedProfile, setEditedProfile] = useState(profile);
-
-  // Handle edit mode
-  const handleEditToggle = () => {
-    if (isEditing) {
-      setEditedProfile(profile); // Reset changes
-    }
-    setIsEditing(!isEditing);
+      ticketsCreated: 0,
+      ticketsResolved: 0,
+      avgResponseTime: "-",
+      satisfaction: "-",
+    },
   };
 
-  // Handle save
-  const handleSave = () => {
-    setProfile(editedProfile);
-    setIsEditing(false);
-    // Add your API call here to save profile
-  };
+  const [profile, setProfile] = useState<ProfileUI>(defaultProfile);
+  const [editedProfile, setEditedProfile] = useState<ProfileUI>(defaultProfile);
 
-  // Handle input change
-  const handleInputChange = (field: keyof UserProfile, value: string) => {
-    setEditedProfile(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  // Get role badge config
-  const getRoleConfig = (role: string) => {
-    const configs = {
-      'admin': { icon: <Shield size={16} />, class: 'role-admin', label: 'Administrator' },
-      'manager': { icon: <Briefcase size={16} />, class: 'role-manager', label: 'Manager' },
-      'team-lead': { icon: <Award size={16} />, class: 'role-lead', label: 'Team Lead' },
-      'team-member': { icon: <User size={16} />, class: 'role-member', label: 'Team Member' }
-    };
-    return configs[role as keyof typeof configs] || configs['team-member'];
-  };
-
-  const roleConfig = getRoleConfig(profile.role);
-
-  // Format date
   const formatDate = (dateString: string) => {
+    if (!dateString) return "-";
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric',
-      month: 'long', 
-      day: 'numeric' 
-    });
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   };
 
-  // Statistics cards
-  const stats = [
-    {
-      label: 'Tickets Created',
-      value: profile.stats.ticketsCreated.toString(),
-      icon: <Activity size={24} />,
-      color: 'blue'
-    },
-    {
-      label: 'Tickets Resolved',
-      value: profile.stats.ticketsResolved.toString(),
-      icon: <CheckCircle size={24} />,
-      color: 'green'
-    },
-    {
-      label: 'Avg Response Time',
-      value: profile.stats.avgResponseTime,
-      icon: <Clock size={24} />,
-      color: 'orange'
-    },
-    {
-      label: 'Satisfaction Rate',
-      value: profile.stats.satisfaction,
-      icon: <Award size={24} />,
-      color: 'red'
+  const getRoleConfig = (role: string) => {
+    const configs: Record<string, { icon: JSX.Element; class: string; label: string }> = {
+      admin: { icon: <Shield size={16} />, class: "role-admin", label: "Administrator" },
+      manager: { icon: <Briefcase size={16} />, class: "role-manager", label: "Manager" },
+      agent: { icon: <Award size={16} />, class: "role-lead", label: "Agent" },
+      user: { icon: <User size={16} />, class: "role-member", label: "User" },
+    };
+    return configs[role] || configs.user;
+  };
+
+  const roleConfig = useMemo(() => getRoleConfig(profile.role), [profile.role]);
+
+  const stats = useMemo(
+    () => [
+      { label: "Tickets Created", value: String(profile.stats.ticketsCreated), icon: <Activity size={24} />, color: "blue" },
+      { label: "Tickets Resolved", value: String(profile.stats.ticketsResolved), icon: <CheckCircle size={24} />, color: "green" },
+      { label: "Avg Response Time", value: profile.stats.avgResponseTime, icon: <Clock size={24} />, color: "orange" },
+      { label: "Satisfaction Rate", value: profile.stats.satisfaction, icon: <Award size={24} />, color: "red" },
+    ],
+    [profile.stats]
+  );
+
+  const loadProfile = async () => {
+    if (!profileId) {
+      setError("Missing profile id");
+      return;
     }
-  ];
+
+    try {
+      setLoading(true);
+      setError("");
+
+      const u: UserDTO = await getUserById(profileId);
+
+      const ui: ProfileUI = {
+        _id: u._id,
+        name: u.name || "",
+        email: u.email || "",
+        phone: u.phone || "",
+        role: u.role,
+        department: u.department || "",
+        position: "",   // (not in DB currently)
+        location: "",   // (not in DB currently)
+        joinedDate: u.createdAt || "",
+        lastActive: u.updatedAt || "",
+        bio: "",        // (not in DB currently)
+        status: (u.status || "available") as UserStatus,
+        expertise: u.expertise || [],
+        stats: {
+          ticketsCreated: 0,
+          ticketsResolved: 0,
+          avgResponseTime: "-",
+          satisfaction: "-",
+        },
+      };
+
+      setProfile(ui);
+      setEditedProfile(ui);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Failed to load profile");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProfile();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId]);
+
+  const handleEditToggle = () => {
+    if (!canEdit) return;
+    if (isEditing) {
+      setEditedProfile(profile);
+    }
+    setIsEditing((p) => !p);
+  };
+
+  const handleInputChange = (field: keyof ProfileUI, value: string) => {
+    setEditedProfile((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!canEdit) return;
+
+    if (!editedProfile.name.trim()) return showToast("err", "Name is required");
+
+    try {
+      setSaving(true);
+
+      // NOTE: updateUser doesn't support email in your API → keep email readonly
+      const payload = {
+        name: editedProfile.name.trim(),
+        role: editedProfile.role,
+        department: editedProfile.department.trim() || undefined,
+        status: editedProfile.status,
+        phone: editedProfile.phone.trim() || undefined,
+        expertise: editedProfile.expertise,
+      };
+
+      const updated = await updateUser(profile._id, payload);
+
+      const ui: ProfileUI = {
+        ...profile,
+        name: updated.name,
+        role: updated.role,
+        department: updated.department || "",
+        status: (updated.status || "available") as UserStatus,
+        phone: updated.phone || "",
+        expertise: updated.expertise || [],
+        lastActive: updated.updatedAt || profile.lastActive,
+      };
+
+      setProfile(ui);
+      setEditedProfile(ui);
+      setIsEditing(false);
+      showToast("ok", "Profile updated ✅");
+    } catch (e: any) {
+      showToast("err", e?.response?.data?.message || e?.message || "Update failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
+
+  if (loading) {
+    return (
+      <div className="profile-page">
+        <div className="profile-content">
+          <div className="empty-state">
+            <Loader2 size={64} strokeWidth={1} />
+            <h3>Loading profile...</h3>
+            <p>Please wait</p>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="profile-page">
+        <div className="profile-content">
+          <div className="empty-state">
+            <AlertCircle size={64} strokeWidth={1} />
+            <h3>Failed to load profile</h3>
+            <p>{error}</p>
+            <button className="action-btn edit-btn" onClick={loadProfile}>
+              <Settings size={18} />
+              Retry
+            </button>
+          </div>
+        </div>
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="profile-page">
       <div className="profile-content">
+        {/* Toast */}
+        {toast && (
+          <div className="error-banner" style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {toast.type === "ok" ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            <span>{toast.msg}</span>
+          </div>
+        )}
+
         {/* Profile Header */}
         <div className="profile-header">
           <div className="header-background"></div>
@@ -164,7 +301,7 @@ const Profile: React.FC = () => {
                   <User size={64} />
                 </div>
                 {isEditing && (
-                  <button className="avatar-upload-btn" aria-label="Upload photo">
+                  <button className="avatar-upload-btn" aria-label="Upload photo" type="button">
                     <Camera size={20} />
                   </button>
                 )}
@@ -178,39 +315,49 @@ const Profile: React.FC = () => {
                     type="text"
                     className="edit-input name-input"
                     value={editedProfile.name}
-                    onChange={(e) => handleInputChange('name', e.target.value)}
+                    onChange={(e) => handleInputChange("name", e.target.value)}
+                    disabled={!canEdit}
                   />
                 ) : (
-                  <h1 className="profile-name">{profile.name}</h1>
+                  <h1 className="profile-name">{profile.name || "—"}</h1>
                 )}
+
                 <div className="profile-badges">
                   <span className={`role-badge ${roleConfig.class}`}>
                     {roleConfig.icon}
                     {roleConfig.label}
                   </span>
+
                   <span className="status-badge active">
                     <CheckCircle size={14} />
-                    Active
+                    {profile.status || "available"}
                   </span>
                 </div>
               </div>
 
               <div className="profile-actions">
-                {isEditing ? (
-                  <>
-                    <button className="action-btn save-btn" onClick={handleSave}>
-                      <Save size={18} />
-                      Save Changes
+                {canEdit ? (
+                  isEditing ? (
+                    <>
+                      <button className="action-btn save-btn" onClick={handleSave} disabled={saving}>
+                        {saving ? <Loader2 size={18} /> : <Save size={18} />}
+                        Save Changes
+                      </button>
+                      <button className="action-btn cancel-btn" onClick={handleEditToggle} disabled={saving}>
+                        <X size={18} />
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button className="action-btn edit-btn" onClick={handleEditToggle}>
+                      <Edit size={18} />
+                      Edit Profile
                     </button>
-                    <button className="action-btn cancel-btn" onClick={handleEditToggle}>
-                      <X size={18} />
-                      Cancel
-                    </button>
-                  </>
+                  )
                 ) : (
-                  <button className="action-btn edit-btn" onClick={handleEditToggle}>
-                    <Edit size={18} />
-                    Edit Profile
+                  <button className="action-btn cancel-btn" onClick={() => navigate(-1)}>
+                    <X size={18} />
+                    Back
                   </button>
                 )}
               </div>
@@ -218,7 +365,7 @@ const Profile: React.FC = () => {
           </div>
         </div>
 
-        {/* Statistics Cards */}
+        {/* Statistics */}
         <div className="stats-grid">
           {stats.map((stat, index) => (
             <div key={index} className={`stat-card stat-${stat.color}`}>
@@ -231,38 +378,29 @@ const Profile: React.FC = () => {
           ))}
         </div>
 
-        {/* Tabs Navigation */}
+        {/* Tabs */}
         <div className="tabs-navigation">
-          <button
-            className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
-            onClick={() => setActiveTab('overview')}
-          >
+          <button className={`tab-btn ${activeTab === "overview" ? "active" : ""}`} onClick={() => setActiveTab("overview")}>
             <User size={18} />
             Overview
           </button>
-          <button
-            className={`tab-btn ${activeTab === 'security' ? 'active' : ''}`}
-            onClick={() => setActiveTab('security')}
-          >
+          <button className={`tab-btn ${activeTab === "security" ? "active" : ""}`} onClick={() => setActiveTab("security")}>
             <Lock size={18} />
             Security
           </button>
-          <button
-            className={`tab-btn ${activeTab === 'preferences' ? 'active' : ''}`}
-            onClick={() => setActiveTab('preferences')}
-          >
+          <button className={`tab-btn ${activeTab === "preferences" ? "active" : ""}`} onClick={() => setActiveTab("preferences")}>
             <Settings size={18} />
             Preferences
           </button>
         </div>
 
-        {/* Tab Content */}
+        {/* Content */}
         <div className="tabs-content">
-          {/* Overview Tab */}
-          {activeTab === 'overview' && (
+          {/* Overview */}
+          {activeTab === "overview" && (
             <div className="tab-panel">
               <div className="content-grid">
-                {/* Personal Information */}
+                {/* Personal */}
                 <div className="info-card">
                   <div className="card-header">
                     <h3 className="card-title">Personal Information</h3>
@@ -274,16 +412,7 @@ const Profile: React.FC = () => {
                         <Mail size={16} />
                         <span>Email</span>
                       </div>
-                      {isEditing ? (
-                        <input
-                          type="email"
-                          className="edit-input"
-                          value={editedProfile.email}
-                          onChange={(e) => handleInputChange('email', e.target.value)}
-                        />
-                      ) : (
-                        <div className="info-value">{profile.email}</div>
-                      )}
+                      <div className="info-value">{profile.email}</div>
                     </div>
 
                     <div className="info-row">
@@ -296,10 +425,11 @@ const Profile: React.FC = () => {
                           type="tel"
                           className="edit-input"
                           value={editedProfile.phone}
-                          onChange={(e) => handleInputChange('phone', e.target.value)}
+                          onChange={(e) => handleInputChange("phone", e.target.value)}
+                          disabled={!canEdit}
                         />
                       ) : (
-                        <div className="info-value">{profile.phone}</div>
+                        <div className="info-value">{profile.phone || "-"}</div>
                       )}
                     </div>
 
@@ -313,10 +443,12 @@ const Profile: React.FC = () => {
                           type="text"
                           className="edit-input"
                           value={editedProfile.location}
-                          onChange={(e) => handleInputChange('location', e.target.value)}
+                          onChange={(e) => handleInputChange("location", e.target.value)}
+                          disabled={!canEdit}
+                          placeholder="(optional)"
                         />
                       ) : (
-                        <div className="info-value">{profile.location}</div>
+                        <div className="info-value">{profile.location || "-"}</div>
                       )}
                     </div>
 
@@ -330,7 +462,7 @@ const Profile: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Work Information */}
+                {/* Work */}
                 <div className="info-card">
                   <div className="card-header">
                     <h3 className="card-title">Work Information</h3>
@@ -340,23 +472,6 @@ const Profile: React.FC = () => {
                     <div className="info-row">
                       <div className="info-label">
                         <Briefcase size={16} />
-                        <span>Position</span>
-                      </div>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          className="edit-input"
-                          value={editedProfile.position}
-                          onChange={(e) => handleInputChange('position', e.target.value)}
-                        />
-                      ) : (
-                        <div className="info-value">{profile.position}</div>
-                      )}
-                    </div>
-
-                    <div className="info-row">
-                      <div className="info-label">
-                        <Shield size={16} />
                         <span>Department</span>
                       </div>
                       {isEditing ? (
@@ -364,10 +479,11 @@ const Profile: React.FC = () => {
                           type="text"
                           className="edit-input"
                           value={editedProfile.department}
-                          onChange={(e) => handleInputChange('department', e.target.value)}
+                          onChange={(e) => handleInputChange("department", e.target.value)}
+                          disabled={!canEdit}
                         />
                       ) : (
-                        <div className="info-value">{profile.department}</div>
+                        <div className="info-value">{profile.department || "-"}</div>
                       )}
                     </div>
 
@@ -376,11 +492,23 @@ const Profile: React.FC = () => {
                         <Award size={16} />
                         <span>Role</span>
                       </div>
-                      <div className="info-value">
-                        <span className={`role-badge-small ${roleConfig.class}`}>
-                          {roleConfig.label}
-                        </span>
-                      </div>
+
+                      {isEditing && (user as any)?.role === "admin" ? (
+                        <select
+                          className="edit-input"
+                          value={editedProfile.role}
+                          onChange={(e) => handleInputChange("role", e.target.value as any)}
+                        >
+                          <option value="user">user</option>
+                          <option value="agent">agent</option>
+                          <option value="manager">manager</option>
+                          <option value="admin">admin</option>
+                        </select>
+                      ) : (
+                        <div className="info-value">
+                          <span className={`role-badge-small ${roleConfig.class}`}>{roleConfig.label}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="info-row">
@@ -394,36 +522,49 @@ const Profile: React.FC = () => {
                 </div>
               </div>
 
-              {/* Bio Section */}
+              {/* Expertise */}
               <div className="info-card bio-card">
                 <div className="card-header">
-                  <h3 className="card-title">About Me</h3>
-                  <User size={20} className="card-icon" />
+                  <h3 className="card-title">Expertise</h3>
+                  <Award size={20} className="card-icon" />
                 </div>
+
                 <div className="card-content">
                   {isEditing ? (
-                    <textarea
-                      className="edit-textarea"
-                      value={editedProfile.bio}
-                      onChange={(e) => handleInputChange('bio', e.target.value)}
-                      rows={4}
+                    <input
+                      className="edit-input"
+                      value={editedProfile.expertise.join(", ")}
+                      onChange={(e) =>
+                        setEditedProfile((p) => ({
+                          ...p,
+                          expertise: e.target.value
+                            .split(",")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        }))
+                      }
+                      placeholder="linux, networking, security"
+                      disabled={!canEdit}
                     />
+                  ) : profile.expertise?.length ? (
+                    <p className="bio-text">{profile.expertise.join(", ")}</p>
                   ) : (
-                    <p className="bio-text">{profile.bio}</p>
+                    <p className="bio-text">-</p>
                   )}
                 </div>
               </div>
             </div>
           )}
 
-          {/* Security Tab */}
-          {activeTab === 'security' && (
+          {/* Security (UI only) */}
+          {activeTab === "security" && (
             <div className="tab-panel">
               <div className="info-card">
                 <div className="card-header">
                   <h3 className="card-title">Password & Security</h3>
                   <Lock size={20} className="card-icon" />
                 </div>
+
                 <div className="card-content">
                   <div className="security-item">
                     <div className="security-info">
@@ -432,10 +573,10 @@ const Profile: React.FC = () => {
                       </div>
                       <div className="security-details">
                         <h4 className="security-title">Password</h4>
-                        <p className="security-description">Last changed 3 months ago</p>
+                        <p className="security-description">Change your password from Settings (API not wired yet)</p>
                       </div>
                     </div>
-                    <button className="security-btn">
+                    <button className="security-btn" type="button" disabled>
                       <Edit size={16} />
                       Change
                     </button>
@@ -448,10 +589,10 @@ const Profile: React.FC = () => {
                       </div>
                       <div className="security-details">
                         <h4 className="security-title">Two-Factor Authentication</h4>
-                        <p className="security-description">Add an extra layer of security</p>
+                        <p className="security-description">Enable 2FA (API not wired yet)</p>
                       </div>
                     </div>
-                    <button className="security-btn">
+                    <button className="security-btn" type="button" disabled>
                       <Settings size={16} />
                       Enable
                     </button>
@@ -464,10 +605,10 @@ const Profile: React.FC = () => {
                       </div>
                       <div className="security-details">
                         <h4 className="security-title">Active Sessions</h4>
-                        <p className="security-description">Manage your active sessions</p>
+                        <p className="security-description">View sessions (API not wired yet)</p>
                       </div>
                     </div>
-                    <button className="security-btn">
+                    <button className="security-btn" type="button" disabled>
                       <Eye size={16} />
                       View
                     </button>
@@ -480,10 +621,10 @@ const Profile: React.FC = () => {
                       </div>
                       <div className="security-details">
                         <h4 className="security-title">Delete Account</h4>
-                        <p className="security-description">Permanently delete your account</p>
+                        <p className="security-description">Disabled for safety</p>
                       </div>
                     </div>
-                    <button className="security-btn danger-btn">
+                    <button className="security-btn danger-btn" type="button" disabled>
                       <X size={16} />
                       Delete
                     </button>
@@ -493,8 +634,8 @@ const Profile: React.FC = () => {
             </div>
           )}
 
-          {/* Preferences Tab */}
-          {activeTab === 'preferences' && (
+          {/* Preferences (UI only) */}
+          {activeTab === "preferences" && (
             <div className="tab-panel">
               <div className="info-card">
                 <div className="card-header">
@@ -505,7 +646,7 @@ const Profile: React.FC = () => {
                   <div className="preference-item">
                     <div className="preference-info">
                       <h4 className="preference-title">Email Notifications</h4>
-                      <p className="preference-description">Receive email updates about your tickets</p>
+                      <p className="preference-description">UI only</p>
                     </div>
                     <label className="toggle-switch">
                       <input type="checkbox" defaultChecked />
@@ -516,7 +657,7 @@ const Profile: React.FC = () => {
                   <div className="preference-item">
                     <div className="preference-info">
                       <h4 className="preference-title">Push Notifications</h4>
-                      <p className="preference-description">Receive push notifications on your device</p>
+                      <p className="preference-description">UI only</p>
                     </div>
                     <label className="toggle-switch">
                       <input type="checkbox" defaultChecked />
@@ -527,7 +668,7 @@ const Profile: React.FC = () => {
                   <div className="preference-item">
                     <div className="preference-info">
                       <h4 className="preference-title">Weekly Summary</h4>
-                      <p className="preference-description">Get a weekly summary of your activity</p>
+                      <p className="preference-description">UI only</p>
                     </div>
                     <label className="toggle-switch">
                       <input type="checkbox" />
@@ -546,22 +687,21 @@ const Profile: React.FC = () => {
                   <div className="preference-item">
                     <div className="preference-info">
                       <h4 className="preference-title">Language</h4>
-                      <p className="preference-description">Choose your preferred language</p>
+                      <p className="preference-description">UI only</p>
                     </div>
                     <select className="preference-select">
                       <option>English</option>
                       <option>العربية</option>
-                      
                     </select>
                   </div>
 
                   <div className="preference-item">
                     <div className="preference-info">
                       <h4 className="preference-title">Timezone</h4>
-                      <p className="preference-description">Set your local timezone</p>
+                      <p className="preference-description">UI only</p>
                     </div>
                     <select className="preference-select">
-                      <option>Asia/Jerusalem (GMT+2)</option>
+                      <option>Asia/Hebron (GMT+2)</option>
                       <option>Europe/London (GMT+0)</option>
                       <option>America/New_York (GMT-5)</option>
                     </select>
@@ -570,7 +710,7 @@ const Profile: React.FC = () => {
                   <div className="preference-item">
                     <div className="preference-info">
                       <h4 className="preference-title">Date Format</h4>
-                      <p className="preference-description">Choose how dates are displayed</p>
+                      <p className="preference-description">UI only</p>
                     </div>
                     <select className="preference-select">
                       <option>MM/DD/YYYY</option>
@@ -584,9 +724,9 @@ const Profile: React.FC = () => {
           )}
         </div>
 
-        {/* Logout Section */}
+        {/* Logout */}
         <div className="logout-section">
-          <button className="logout-btn">
+          <button className="logout-btn" type="button" onClick={handleLogout}>
             <LogOut size={18} />
             Logout
           </button>
@@ -599,3 +739,4 @@ const Profile: React.FC = () => {
 };
 
 export default Profile;
+ 

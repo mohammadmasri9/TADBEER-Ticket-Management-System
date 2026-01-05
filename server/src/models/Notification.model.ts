@@ -21,21 +21,10 @@ export interface INotification extends Document {
 
 const NotificationSchema = new Schema<INotification>(
   {
-    userId: {
-      type: Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
     type: {
       type: String,
-      enum: [
-        "ticket_assigned",
-        "ticket_updated",
-        "comment_added",
-        "ticket_overdue",
-        "system",
-      ],
+      enum: ["ticket_assigned", "ticket_updated", "comment_added", "ticket_overdue", "system"],
       required: true,
     },
     title: { type: String, required: true, trim: true },
@@ -46,12 +35,11 @@ const NotificationSchema = new Schema<INotification>(
   { timestamps: true }
 );
 
-// Index for fast inbox queries
 NotificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
 
-// ✅ FIX: force MongoDB collection name "Notifications"
 const Notification: Model<INotification> =
   mongoose.models.Notification ||
   mongoose.model<INotification>("Notification", NotificationSchema, "Notifications");
+  
 
 export default Notification;

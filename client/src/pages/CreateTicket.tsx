@@ -37,11 +37,8 @@ import {
 } from "lucide-react";
 
 // ✅ API
-import {
-  createTicket,
-  TicketCategory,
-  TicketPriority,
-} from "../../api/tickets";
+import { createTicket, TicketCategory, TicketPriority } from "../../api/tickets";
+import { getUsers, UserDTO } from "../../api/users";
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -67,7 +64,7 @@ interface FormData {
   description: string;
   priority: TicketPriority;
   category: "" | TicketCategory;
-  assigneeId: string;
+  assigneeId: string; // user _id
   dueDate: string;
   attachments: File[];
 }
@@ -150,7 +147,6 @@ const VALIDATION_RULES = {
   DESCRIPTION_MIN_LENGTH: 20,
   DESCRIPTION_MAX_LENGTH: 5000,
   MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
-  ASSIGNEE_ID_PATTERN: /^[a-fA-F0-9]{24}$/,
 };
 
 const DRAFT_STORAGE_KEY = "draftTicket";
@@ -163,9 +159,9 @@ const CreateTicket: React.FC = () => {
   const navigate = useNavigate();
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
-  // ============================================================================
-  // STATE MANAGEMENT
-  // ============================================================================
+  // ========================================================================
+  // STATE
+  // ========================================================================
 
   const [formData, setFormData] = useState<FormData>({
     title: "",
@@ -186,9 +182,45 @@ const CreateTicket: React.FC = () => {
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
 
-  // ============================================================================
+  // Users for assignee dropdown
+  const [users, setUsers] = useState<UserDTO[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState("");
+  const [assigneeSearch, setAssigneeSearch] = useState("");
+
+  // ========================================================================
   // EFFECTS
-  // ============================================================================
+  // ========================================================================
+
+  // Fetch users for assignment
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        setUsersLoading(true);
+        setUsersError("");
+
+        // If your backend supports filters, you can pass params:
+        // const data = await getUsers({ status: "available" });
+        const data = await getUsers();
+
+        if (!mounted) return;
+        setUsers(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        if (!mounted) return;
+        setUsersError(e?.response?.data?.message || e?.message || "Failed to load users");
+        setUsers([]);
+      } finally {
+        if (!mounted) return;
+        setUsersLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Auto-save draft
   useEffect(() => {
@@ -224,9 +256,35 @@ const CreateTicket: React.FC = () => {
     }
   }, []);
 
-  // ============================================================================
+  // ========================================================================
+  // MEMO
+  // ========================================================================
+
+  const filteredUsers = useMemo(() => {
+    const q = assigneeSearch.trim().toLowerCase();
+    if (!q) return users;
+
+    return users.filter((u) => {
+      const name = (u.name || "").toLowerCase();
+      const email = (u.email || "").toLowerCase();
+      const dept = (u.department || "").toLowerCase();
+      const role = (u.role || "").toLowerCase();
+      return name.includes(q) || email.includes(q) || dept.includes(q) || role.includes(q);
+    });
+  }, [users, assigneeSearch]);
+
+  const isFormValid = useMemo(() => {
+    return (
+      formData.title.trim().length >= VALIDATION_RULES.TITLE_MIN_LENGTH &&
+      formData.description.trim().length >= VALIDATION_RULES.DESCRIPTION_MIN_LENGTH &&
+      formData.category !== "" &&
+      Object.keys(errors).length === 0
+    );
+  }, [formData.title, formData.description, formData.category, errors]);
+
+  // ========================================================================
   // VALIDATION
-  // ============================================================================
+  // ========================================================================
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -247,26 +305,19 @@ const CreateTicket: React.FC = () => {
       newErrors.category = "Please select a category";
     }
 
-    if (formData.assigneeId && !VALIDATION_RULES.ASSIGNEE_ID_PATTERN.test(formData.assigneeId)) {
-      newErrors.assigneeId = "Assignee must be a valid UserId (24 hex chars)";
+    // Assignee must exist in users list (if selected)
+    if (formData.assigneeId) {
+      const exists = users.some((u) => u._id === formData.assigneeId);
+      if (!exists) newErrors.assigneeId = "Selected assignee is invalid";
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const isFormValid = useMemo(() => {
-    return (
-      formData.title.trim().length >= VALIDATION_RULES.TITLE_MIN_LENGTH &&
-      formData.description.trim().length >= VALIDATION_RULES.DESCRIPTION_MIN_LENGTH &&
-      formData.category !== "" &&
-      Object.keys(errors).length === 0
-    );
-  }, [formData.title, formData.description, formData.category, errors]);
-
-  // ============================================================================
-  // EVENT HANDLERS
-  // ============================================================================
+  // ========================================================================
+  // HANDLERS
+  // ========================================================================
 
   const handleCancel = () => {
     navigate("/tickets");
@@ -352,12 +403,8 @@ const CreateTicket: React.FC = () => {
         priority: formData.priority,
       };
 
-      if (formData.assigneeId.trim()) {
-        payload.assignee = formData.assigneeId.trim();
-      }
-      if (formData.dueDate) {
-        payload.dueDate = new Date(formData.dueDate).toISOString();
-      }
+      if (formData.assigneeId.trim()) payload.assignee = formData.assigneeId.trim();
+      if (formData.dueDate) payload.dueDate = new Date(formData.dueDate).toISOString();
 
       await createTicket(payload);
 
@@ -374,15 +421,13 @@ const CreateTicket: React.FC = () => {
     }
   };
 
-  // ============================================================================
-  // UTILITY FUNCTIONS
-  // ============================================================================
+  // ========================================================================
+  // UTILS
+  // ========================================================================
 
   const getFileIcon = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
-    if (["jpg", "jpeg", "png", "gif"].includes(ext || "")) {
-      return <Image size={16} />;
-    }
+    if (["jpg", "jpeg", "png", "gif"].includes(ext || "")) return <Image size={16} />;
     return <FileText size={16} />;
   };
 
@@ -402,9 +447,9 @@ const CreateTicket: React.FC = () => {
     return classes[priority] || "";
   };
 
-  // ============================================================================
+  // ========================================================================
   // RENDER
-  // ============================================================================
+  // ========================================================================
 
   return (
     <div className="create-ticket-page">
@@ -441,9 +486,7 @@ const CreateTicket: React.FC = () => {
             </div>
             <div className="header-text">
               <h1 className="page-title">Create New Ticket</h1>
-              <p className="page-subtitle">
-                Submit a detailed ticket to get help from our support team
-              </p>
+              <p className="page-subtitle">Submit a detailed ticket to get help from our support team</p>
             </div>
           </div>
         </div>
@@ -517,9 +560,7 @@ const CreateTicket: React.FC = () => {
                 <div className="input-meta">
                   <span
                     className={`char-count ${
-                      formData.title.length > VALIDATION_RULES.TITLE_MAX_LENGTH - 20
-                        ? "warning"
-                        : ""
+                      formData.title.length > VALIDATION_RULES.TITLE_MAX_LENGTH - 20 ? "warning" : ""
                     }`}
                   >
                     {formData.title.length}/{VALIDATION_RULES.TITLE_MAX_LENGTH}
@@ -544,14 +585,10 @@ const CreateTicket: React.FC = () => {
                     <button
                       key={cat.value}
                       type="button"
-                      className={`category-card ${
-                        formData.category === cat.value ? "selected" : ""
-                      }`}
+                      className={`category-card ${formData.category === cat.value ? "selected" : ""}`}
                       onClick={() => {
                         setFormData((prev) => ({ ...prev, category: cat.value }));
-                        if (errors.category) {
-                          setErrors((prev) => ({ ...prev, category: "" }));
-                        }
+                        if (errors.category) setErrors((prev) => ({ ...prev, category: "" }));
                       }}
                     >
                       <div className="category-icon">{cat.icon}</div>
@@ -592,12 +629,7 @@ const CreateTicket: React.FC = () => {
                     <TrendingUp size={16} />
                     Priority Level
                   </label>
-                  <select
-                    id="priority"
-                    name="priority"
-                    value={formData.priority}
-                    onChange={handleChange}
-                  >
+                  <select id="priority" name="priority" value={formData.priority} onChange={handleChange}>
                     {PRIORITIES.map((p) => (
                       <option key={p.value} value={p.value}>
                         {p.label} - {p.description}
@@ -615,25 +647,70 @@ const CreateTicket: React.FC = () => {
                   )}
                 </div>
 
+                {/* ✅ Assign To dropdown */}
                 <div className="form-group">
                   <label htmlFor="assigneeId">
                     <User size={16} />
-                    Assign To (UserId)
+                    Assign To
                   </label>
+
                   <input
                     type="text"
+                    value={assigneeSearch}
+                    onChange={(e) => setAssigneeSearch(e.target.value)}
+                    placeholder="Search by name / email / department / role..."
+                    style={{ marginBottom: 8 }}
+                  />
+
+                  <select
                     id="assigneeId"
                     name="assigneeId"
                     value={formData.assigneeId}
                     onChange={handleChange}
                     className={errors.assigneeId ? "error" : ""}
-                    placeholder="Paste assignee UserId (optional)"
-                  />
+                    disabled={usersLoading}
+                  >
+                    <option value="">
+                      {usersLoading ? "Loading users..." : "Unassigned (optional)"}
+                    </option>
+
+                    {filteredUsers.map((u) => (
+                      <option key={u._id} value={u._id}>
+                        {u.name} — {u.email}
+                        {u.department ? ` — ${u.department}` : ""}
+                        {u.role ? ` (${u.role})` : ""}
+                        {u.status ? ` • ${u.status}` : ""}
+                      </option>
+                    ))}
+                  </select>
+
+                  {usersError && (
+                    <span className="error-message">
+                      <AlertCircle size={14} />
+                      {usersError}
+                    </span>
+                  )}
+
                   {errors.assigneeId && (
                     <span className="error-message">
                       <AlertCircle size={14} />
                       {errors.assigneeId}
                     </span>
+                  )}
+
+                  {!!formData.assigneeId && (
+                    <button
+                      type="button"
+                      className="btn-draft"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        setFormData((prev) => ({ ...prev, assigneeId: "" }));
+                        setAssigneeSearch("");
+                        if (errors.assigneeId) setErrors((prev) => ({ ...prev, assigneeId: "" }));
+                      }}
+                    >
+                      Clear
+                    </button>
                   )}
                 </div>
               </div>
@@ -784,8 +861,7 @@ const CreateTicket: React.FC = () => {
                     <div className="files-header">
                       <h4>Attached Files</h4>
                       <span className="files-count">
-                        {formData.attachments.length} file
-                        {formData.attachments.length > 1 ? "s" : ""}
+                        {formData.attachments.length} file{formData.attachments.length > 1 ? "s" : ""}
                       </span>
                     </div>
 
@@ -816,12 +892,7 @@ const CreateTicket: React.FC = () => {
 
           {/* Actions */}
           <div className="form-actions">
-            <button
-              type="button"
-              className="btn-cancel"
-              onClick={handleCancel}
-              disabled={loading}
-            >
+            <button type="button" className="btn-cancel" onClick={handleCancel} disabled={loading}>
               <X size={18} />
               Cancel
             </button>

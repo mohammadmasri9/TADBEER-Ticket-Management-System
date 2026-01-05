@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { useAuth } from '../context/AuthContext'; // Adjust path as needed
-import Footer from '../components/Footer';
-import '../style/UserManagement.css';
-import { 
+import React, { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../context/AuthContext";
+import Footer from "../components/Footer";
+import "../style/UserManagement.css";
+import {
   Search,
   Filter,
   MoreVertical,
   ArrowUpDown,
-  User,
+  User as UserIcon,
   Mail,
   Phone,
   Shield,
@@ -21,33 +21,58 @@ import {
   Users,
   UserPlus,
   Activity,
-  Lock
-} from 'lucide-react';
+  Lock,
+  X,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  Save,
+} from "lucide-react";
 
-interface User {
-  id: string;
-  name: string;
-  email: string;
-  role: 'admin' | 'team-lead' | 'team-member';
-  phone?: string;
-  department?: string;
-  joinedDate: string;
-  lastActive: string;
-  status: 'active' | 'inactive' | 'pending';
-  avatar?: string;
-  ticketsCount?: number;
+import {
+  getUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  UserDTO,
+  UserRole,
+  UserStatus,
+} from "../../api/users";
+
+type ViewMode = "grid" | "list";
+
+const roleLabel: Record<UserRole, string> = {
+  admin: "Admin",
+  manager: "Manager",
+  agent: "Agent",
+  user: "User",
+};
+
+const roleBadgeClass: Record<UserRole, string> = {
+  admin: "role-admin",
+  manager: "role-lead",
+  agent: "role-member",
+  user: "role-member",
+};
+
+const statusBadgeClass: Record<UserStatus, string> = {
+  available: "status-active",
+  busy: "status-pending",
+  offline: "status-inactive",
+};
+
+function formatDate(dateStr?: string) {
+  if (!dateStr) return "-";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 const UserManagement: React.FC = () => {
   const { user } = useAuth();
-  
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRole, setSelectedRole] = useState('all');
 
-  // Role-based access check
-  if (user?.role !== "admin") {
+  // Admin-only
+  if ((user as any)?.role !== "admin") {
     return (
       <div className="user-management-page">
         <div className="user-management-content">
@@ -62,12 +87,9 @@ const UserManagement: React.FC = () => {
               </p>
               <div className="access-denied-info">
                 <p className="info-label">Your Current Role:</p>
-                <span className="role-badge">{user?.role || 'Guest'}</span>
+                <span className="role-badge">{(user as any)?.role || "Guest"}</span>
               </div>
-              <button 
-                className="back-btn"
-                onClick={() => window.history.back()}
-              >
+              <button className="back-btn-denied" onClick={() => window.history.back()}>
                 Go Back
               </button>
             </div>
@@ -78,249 +100,339 @@ const UserManagement: React.FC = () => {
     );
   }
 
-  // Sample user data
-  const allUsers: User[] = [
-    {
-      id: 'USR-001',
-      name: 'John Smith',
-      email: 'john.smith@tadbeer.com',
-      role: 'admin',
-      phone: '+972-599-123456',
-      department: 'IT',
-      joinedDate: '2024-01-15',
-      lastActive: '2025-12-21',
-      status: 'active',
-      ticketsCount: 24
-    },
-    {
-      id: 'USR-002',
-      name: 'Emily Turner',
-      email: 'emily.turner@tadbeer.com',
-      role: 'team-lead',
-      phone: '+972-599-234567',
-      department: 'Support',
-      joinedDate: '2024-03-10',
-      lastActive: '2025-12-21',
-      status: 'active',
-      ticketsCount: 18
-    },
-    {
-      id: 'USR-003',
-      name: 'Michael Brown',
-      email: 'michael.brown@tadbeer.com',
-      role: 'team-member',
-      phone: '+972-599-345678',
-      department: 'Support',
-      joinedDate: '2024-06-20',
-      lastActive: '2025-12-20',
-      status: 'active',
-      ticketsCount: 12
-    },
-    {
-      id: 'USR-004',
-      name: 'Sarah Johnson',
-      email: 'sarah.johnson@tadbeer.com',
-      role: 'team-lead',
-      phone: '+972-599-456789',
-      department: 'Technical',
-      joinedDate: '2024-02-28',
-      lastActive: '2025-12-19',
-      status: 'active',
-      ticketsCount: 31
-    },
-    {
-      id: 'USR-005',
-      name: 'David Wilson',
-      email: 'david.wilson@tadbeer.com',
-      role: 'team-member',
-      department: 'Support',
-      joinedDate: '2024-09-15',
-      lastActive: '2025-12-18',
-      status: 'inactive',
-      ticketsCount: 8
-    },
-    {
-      id: 'USR-006',
-      name: 'Emma Davis',
-      email: 'emma.davis@tadbeer.com',
-      role: 'team-member',
-      phone: '+972-599-567890',
-      department: 'Technical',
-      joinedDate: '2024-11-01',
-      lastActive: '2025-12-21',
-      status: 'active',
-      ticketsCount: 15
-    },
-    {
-      id: 'USR-007',
-      name: 'Alex Rivera',
-      email: 'alex.rivera@tadbeer.com',
-      role: 'team-member',
-      phone: '+972-599-678901',
-      department: 'Security',
-      joinedDate: '2024-07-12',
-      lastActive: '2025-12-20',
-      status: 'active',
-      ticketsCount: 20
-    },
-    {
-      id: 'USR-008',
-      name: 'Lisa Anderson',
-      email: 'lisa.anderson@tadbeer.com',
-      role: 'team-member',
-      department: 'Support',
-      joinedDate: '2024-12-01',
-      lastActive: '2025-12-15',
-      status: 'pending',
-      ticketsCount: 3
-    }
-  ];
+  // UI state
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedRole, setSelectedRole] = useState<UserRole | "all">("all");
+  const [selectedStatus, setSelectedStatus] = useState<UserStatus | "all">("all");
+  const [selectedDept, setSelectedDept] = useState<string | "all">("all");
 
-  // Filter users based on search and role
-  const filteredUsers = allUsers.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         user.id.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = selectedRole === 'all' || user.role === selectedRole;
-    return matchesSearch && matchesRole;
+  // Data state
+  const [users, setUsers] = useState<UserDTO[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Modal state
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<"create" | "edit">("create");
+  const [activeUser, setActiveUser] = useState<UserDTO | null>(null);
+
+  // Form state
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+    role: "user" as UserRole,
+    department: "",
+    status: "available" as UserStatus,
+    phone: "",
+    expertise: "",
   });
 
-  // Get role badge styling
-  const getRoleConfig = (role: string) => {
-    const configs = {
-      'admin': { icon: <Shield size={14} />, class: 'role-admin', label: 'Admin' },
-      'team-lead': { icon: <UserCheck size={14} />, class: 'role-lead', label: 'Team Lead' },
-      'team-member': { icon: <User size={14} />, class: 'role-member', label: 'Team Member' }
-    };
-    return configs[role as keyof typeof configs];
+  // Form errors
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  // Actions
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState<string>("");
+  const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
+
+  const showToast = (type: "ok" | "err", msg: string) => {
+    setToast({ type, msg });
+    setTimeout(() => setToast(null), 1800);
   };
 
-  // Get status badge styling
-  const getStatusClass = (status: string) => {
-    const classes = {
-      'active': 'status-active',
-      'inactive': 'status-inactive',
-      'pending': 'status-pending'
-    };
-    return classes[status as keyof typeof classes];
-  };
-
-  // Format date
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffTime = Math.abs(now.getTime() - date.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays === 0) return 'Today';
-    if (diffDays === 1) return 'Yesterday';
-    if (diffDays < 7) return `${diffDays} days ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  // Statistics
-  const stats = [
-    { 
-      label: 'Total Users', 
-      value: allUsers.length.toString(), 
-      icon: <Users size={24} />,
-      trendValue: '+5',
-      trendUp: true
-    },
-    { 
-      label: 'Active Users', 
-      value: allUsers.filter(u => u.status === 'active').length.toString(), 
-      icon: <UserCheck size={24} />,
-      trendValue: '+2',
-      trendUp: true
-    },
-    { 
-      label: 'Team Leads', 
-      value: allUsers.filter(u => u.role === 'team-lead').length.toString(), 
-      icon: <Shield size={24} />,
-      trendValue: '0',
-      trendUp: true
-    },
-    { 
-      label: 'Pending Invites', 
-      value: allUsers.filter(u => u.status === 'pending').length.toString(), 
-      icon: <UserPlus size={24} />,
-      trendValue: '+1',
-      trendUp: true
+  const loadUsers = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const data = await getUsers();
+      setUsers(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || "Failed to load users");
+    } finally {
+      setLoading(false);
     }
-  ];
+  };
 
-  // User Card Component
-  const UserCard: React.FC<{ user: User }> = ({ user }) => {
-    const roleConfig = getRoleConfig(user.role);
-    
+  useEffect(() => {
+    loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Departments list from data
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    users.forEach((u) => {
+      if (u.department) set.add(u.department);
+    });
+    return Array.from(set).sort();
+  }, [users]);
+
+  // Filtering
+  const filteredUsers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+
+    return users.filter((u) => {
+      const matchesSearch =
+        !q ||
+        u.name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q) ||
+        u._id?.toLowerCase().includes(q);
+
+      const matchesRole = selectedRole === "all" || u.role === selectedRole;
+      const matchesStatus = selectedStatus === "all" || (u.status || "available") === selectedStatus;
+      const matchesDept = selectedDept === "all" || (u.department || "") === selectedDept;
+
+      return matchesSearch && matchesRole && matchesStatus && matchesDept;
+    });
+  }, [users, searchQuery, selectedRole, selectedStatus, selectedDept]);
+
+  // Stats
+  const stats = useMemo(() => {
+    const total = users.length;
+    const active = users.filter((u) => (u.status || "available") === "available").length;
+    const managers = users.filter((u) => u.role === "manager").length;
+    const agents = users.filter((u) => u.role === "agent").length;
+
+    return [
+      { label: "Total Users", value: String(total), icon: <Users size={24} />, trendValue: "", trendUp: true },
+      { label: "Available", value: String(active), icon: <UserCheck size={24} />, trendValue: "", trendUp: true },
+      { label: "Managers", value: String(managers), icon: <Shield size={24} />, trendValue: "", trendUp: true },
+      { label: "Agents", value: String(agents), icon: <UserPlus size={24} />, trendValue: "", trendUp: true },
+    ];
+  }, [users]);
+
+  const openCreate = () => {
+    setModalMode("create");
+    setActiveUser(null);
+    setForm({
+      name: "",
+      email: "",
+      password: "",
+      role: "user",
+      department: "",
+      status: "available",
+      phone: "",
+      expertise: "",
+    });
+    setFormErrors({});
+    setModalOpen(true);
+  };
+
+  const openEdit = (u: UserDTO) => {
+    setModalMode("edit");
+    setActiveUser(u);
+    setForm({
+      name: u.name || "",
+      email: u.email || "",
+      password: "", // not used in edit
+      role: u.role,
+      department: u.department || "",
+      status: (u.status || "available") as UserStatus,
+      phone: u.phone || "",
+      expertise: (u.expertise || []).join(", "),
+    });
+    setFormErrors({});
+    setModalOpen(true);
+  };
+
+  const closeModal = () => {
+    if (saving) return;
+    setModalOpen(false);
+    setFormErrors({});
+  };
+
+  const onFormChange = (name: string, value: string) => {
+    setForm((p) => ({ ...p, [name]: value }));
+    // Clear error for this field
+    if (formErrors[name]) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    if (!form.name.trim()) {
+      errors.name = "Name is required";
+    }
+
+    if (!form.email.trim()) {
+      errors.email = "Email is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      errors.email = "Invalid email format";
+    }
+
+    if (modalMode === "create") {
+      if (!form.password.trim()) {
+        errors.password = "Password is required";
+      } else if (form.password.trim().length < 6) {
+        errors.password = "Password must be at least 6 characters";
+      }
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
+  const saveUser = async () => {
+    if (!validateForm()) return;
+
+    try {
+      setSaving(true);
+      setError("");
+
+      if (modalMode === "create") {
+        const payload = {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          password: form.password.trim(),
+          role: form.role,
+          department: form.department.trim() || undefined,
+          status: form.status,
+          phone: form.phone.trim() || undefined,
+          expertise: form.expertise
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        };
+
+        const created = await createUser(payload);
+        setUsers((prev) => [created, ...prev]);
+        showToast("ok", "User created successfully ✅");
+        setModalOpen(false);
+      } else {
+        if (!activeUser?._id) return;
+
+        const payload = {
+          name: form.name.trim(),
+          role: form.role,
+          department: form.department.trim() || undefined,
+          status: form.status,
+          phone: form.phone.trim() || undefined,
+          expertise: form.expertise
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+        };
+
+        const updated = await updateUser(activeUser._id, payload);
+        setUsers((prev) => prev.map((x) => (x._id === updated._id ? updated : x)));
+        showToast("ok", "User updated successfully ✅");
+        setModalOpen(false);
+      }
+    } catch (e: any) {
+      showToast("err", e?.response?.data?.message || e?.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeUser = async (u: UserDTO) => {
+    if (!u._id) return;
+    const ok = window.confirm(`Delete user "${u.name}"? This action cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      setDeletingId(u._id);
+      await deleteUser(u._id);
+      setUsers((prev) => prev.filter((x) => x._id !== u._id));
+      showToast("ok", "User deleted successfully ✅");
+    } catch (e: any) {
+      showToast("err", e?.response?.data?.message || e?.message || "Delete failed");
+    } finally {
+      setDeletingId("");
+    }
+  };
+
+  const RoleBadge: React.FC<{ role: UserRole }> = ({ role }) => (
+    <span className={`role-badge ${roleBadgeClass[role]}`}>
+      <Shield size={14} />
+      {roleLabel[role]}
+    </span>
+  );
+
+  const StatusBadge: React.FC<{ status: UserStatus }> = ({ status }) => (
+    <span className={`status-badge ${statusBadgeClass[status]}`}>{status}</span>
+  );
+
+  const UserCard: React.FC<{ u: UserDTO }> = ({ u }) => {
+    const status = (u.status || "available") as UserStatus;
+
     return (
       <div className="user-card">
         <div className="user-card-header">
           <div className="user-avatar">
-            <User size={32} />
+            <UserIcon size={32} />
           </div>
-          <button className="user-menu-btn" aria-label="More options">
+          <button className="user-menu-btn" aria-label="More options" type="button">
             <MoreVertical size={18} />
           </button>
         </div>
 
         <div className="user-info">
-          <h3 className="user-name">{user.name}</h3>
+          <h3 className="user-name">{u.name}</h3>
           <p className="user-email">
             <Mail size={14} />
-            {user.email}
+            {u.email}
           </p>
-          {user.phone && (
+          {u.phone && (
             <p className="user-phone">
               <Phone size={14} />
-              {user.phone}
+              {u.phone}
             </p>
           )}
         </div>
 
         <div className="user-badges">
-          <span className={`role-badge ${roleConfig.class}`}>
-            {roleConfig.icon}
-            {roleConfig.label}
-          </span>
-          <span className={`status-badge ${getStatusClass(user.status)}`}>
-            {user.status}
-          </span>
+          <RoleBadge role={u.role} />
+          <StatusBadge status={status} />
         </div>
 
         <div className="user-meta">
-          {user.department && (
+          {u.department && (
             <div className="meta-item">
               <Users size={14} />
-              <span>{user.department}</span>
+              <span>{u.department}</span>
             </div>
           )}
           <div className="meta-item">
             <Calendar size={14} />
-            <span>Joined {formatDate(user.joinedDate)}</span>
+            <span>Joined {formatDate(u.createdAt)}</span>
           </div>
           <div className="meta-item">
             <Activity size={14} />
-            <span>Active {formatDate(user.lastActive)}</span>
+            <span>Updated {formatDate(u.updatedAt)}</span>
           </div>
         </div>
 
         <div className="user-footer">
           <div className="user-stats">
-            {user.ticketsCount && (
-              <span className="stat-item">
-                <Shield size={14} />
-                {user.ticketsCount} tickets
-              </span>
-            )}
+            <span className="stat-item">
+              <Shield size={14} />
+              {u.role}
+            </span>
           </div>
+
           <div className="user-actions">
-            <button className="action-btn edit-btn" aria-label="Edit user">
+            <button className="action-btn edit-btn" aria-label="Edit user" type="button" onClick={() => openEdit(u)}>
               <Edit size={16} />
             </button>
-            <button className="action-btn delete-btn" aria-label="Remove user">
-              <Trash2 size={16} />
+            <button
+              className="action-btn delete-btn"
+              aria-label="Remove user"
+              type="button"
+              onClick={() => removeUser(u)}
+              disabled={deletingId === u._id}
+              style={{ opacity: deletingId === u._id ? 0.6 : 1 }}
+            >
+              {deletingId === u._id ? <Loader2 size={16} className="spinning" /> : <Trash2 size={16} />}
             </button>
           </div>
         </div>
@@ -328,64 +440,61 @@ const UserManagement: React.FC = () => {
     );
   };
 
-  // List View Item Component
-  const UserListItem: React.FC<{ user: User }> = ({ user }) => {
-    const roleConfig = getRoleConfig(user.role);
-    
+  const UserListItem: React.FC<{ u: UserDTO }> = ({ u }) => {
+    const status = (u.status || "available") as UserStatus;
+
     return (
       <div className="user-list-item">
         <div className="list-item-left">
           <div className="user-avatar-small">
-            <User size={24} />
+            <UserIcon size={24} />
           </div>
           <div className="user-info-list">
-            <h3 className="user-name-list">{user.name}</h3>
+            <h3 className="user-name-list">{u.name}</h3>
             <p className="user-email-list">
               <Mail size={12} />
-              {user.email}
+              {u.email}
             </p>
           </div>
         </div>
 
         <div className="list-item-center">
-          <span className={`role-badge ${roleConfig.class}`}>
-            {roleConfig.icon}
-            {roleConfig.label}
-          </span>
-          <span className={`status-badge ${getStatusClass(user.status)}`}>
-            {user.status}
-          </span>
-          {user.department && (
+          <RoleBadge role={u.role} />
+          <StatusBadge status={status} />
+          {u.department && (
             <span className="department-badge">
               <Users size={12} />
-              {user.department}
+              {u.department}
             </span>
           )}
         </div>
 
         <div className="list-item-right">
-          {user.phone && (
+          {u.phone && (
             <div className="user-contact">
               <Phone size={14} />
-              <span>{user.phone}</span>
+              <span>{u.phone}</span>
             </div>
           )}
+
           <div className="user-activity">
             <Activity size={14} />
-            <span>{formatDate(user.lastActive)}</span>
+            <span>{formatDate(u.updatedAt)}</span>
           </div>
-          {user.ticketsCount && (
-            <div className="user-tickets">
-              <Shield size={14} />
-              <span>{user.ticketsCount} tickets</span>
-            </div>
-          )}
+
           <div className="user-actions-list">
-            <button className="action-btn edit-btn" aria-label="Edit user">
+            <button className="action-btn edit-btn" aria-label="Edit user" type="button" onClick={() => openEdit(u)}>
               <Edit size={16} />
             </button>
-            <button className="action-btn delete-btn" aria-label="Remove user">
-              <Trash2 size={16} />
+            <button
+              className="action-btn delete-btn"
+              aria-label="Remove user"
+              type="button"
+              onClick={() => removeUser(u)}
+              disabled={deletingId === u._id}
+              style={{ opacity: deletingId === u._id ? 0.6 : 1 }}
+            >
+              {deletingId === u._id ? <Loader2 size={16} className="spinning" /> : <Trash2 size={16} />}
             </button>
           </div>
         </div>
@@ -396,15 +505,23 @@ const UserManagement: React.FC = () => {
   return (
     <div className="user-management-page">
       <div className="user-management-content">
-        {/* Statistics Cards */}
+        {/* Toast */}
+        {toast && (
+          <div
+            className={`${toast.type === "ok" ? "success-banner" : "error-banner"}`}
+            style={{ marginBottom: 24 }}
+          >
+            {toast.type === "ok" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
+            <span>{toast.msg}</span>
+          </div>
+        )}
+
+        {/* Statistics */}
         <div className="stats-grid">
-          {stats.map((stat, index) => (
-            <div key={index} className="stat-card">
+          {stats.map((stat, idx) => (
+            <div key={idx} className="stat-card">
               <div className="stat-left">
                 <div className="stat-icon">{stat.icon}</div>
-                <span className={`stat-trend ${stat.trendUp ? 'up' : 'down'}`}>
-                  {stat.trendValue}
-                </span>
               </div>
               <div className="stat-right">
                 <h3 className="stat-value">{stat.value}</h3>
@@ -414,65 +531,69 @@ const UserManagement: React.FC = () => {
           ))}
         </div>
 
-        {/* Controls Bar */}
+        {/* Controls */}
         <div className="controls-bar">
           <div className="controls-left">
             <div className="search-box">
               <Search size={18} />
-              <input 
-                type="text" 
-                placeholder="Search users..." 
+              <input
+                type="text"
+                placeholder="Search users by name, email, id..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
 
             <div className="filter-group">
-              <button 
-                className={`filter-btn ${filterOpen ? 'active' : ''}`}
-                onClick={() => setFilterOpen(!filterOpen)}
+              <button
+                className={`filter-btn ${filterOpen ? "active" : ""}`}
+                onClick={() => setFilterOpen((p) => !p)}
+                type="button"
               >
                 <Filter size={18} />
                 Filter
               </button>
 
-              <select 
+              <select
                 className="sort-select"
                 value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
+                onChange={(e) => setSelectedRole(e.target.value as any)}
               >
                 <option value="all">All Roles</option>
                 <option value="admin">Admin</option>
-                <option value="team-lead">Team Lead</option>
-                <option value="team-member">Team Member</option>
+                <option value="manager">Manager</option>
+                <option value="agent">Agent</option>
+                <option value="user">User</option>
               </select>
 
-              <button className="sort-btn">
+              <button className="sort-btn" type="button" onClick={() => loadUsers()}>
                 <ArrowUpDown size={18} />
-                Sort
+                Refresh
               </button>
             </div>
           </div>
 
           <div className="controls-right">
             <div className="view-toggle">
-              <button 
-                className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
-                onClick={() => setViewMode('grid')}
+              <button
+                className={`view-btn ${viewMode === "grid" ? "active" : ""}`}
+                onClick={() => setViewMode("grid")}
                 aria-label="Grid view"
+                type="button"
               >
                 <Grid size={18} />
               </button>
-              <button 
-                className={`view-btn ${viewMode === 'list' ? 'active' : ''}`}
-                onClick={() => setViewMode('list')}
+              <button
+                className={`view-btn ${viewMode === "list" ? "active" : ""}`}
+                onClick={() => setViewMode("list")}
                 aria-label="List view"
+                type="button"
               >
                 <List size={18} />
               </button>
             </div>
 
-            <button className="add-user-btn">
+            <button className="add-user-btn" type="button" onClick={openCreate}>
               <Plus size={18} />
               Add New User
             </button>
@@ -484,79 +605,331 @@ const UserManagement: React.FC = () => {
           <div className="filter-panel">
             <div className="filter-section">
               <h4>Status</h4>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>Active</span>
-              </label>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>Inactive</span>
-              </label>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>Pending</span>
-              </label>
+              <select
+                className="filter-select"
+                value={selectedStatus}
+                onChange={(e) => setSelectedStatus(e.target.value as any)}
+              >
+                <option value="all">All</option>
+                <option value="available">Available</option>
+                <option value="busy">Busy</option>
+                <option value="offline">Offline</option>
+              </select>
             </div>
 
             <div className="filter-section">
               <h4>Department</h4>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>IT</span>
-              </label>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>Support</span>
-              </label>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>Technical</span>
-              </label>
-              <label className="filter-option">
-                <input type="checkbox" defaultChecked />
-                <span>Security</span>
-              </label>
-            </div>
-
-            <div className="filter-section">
-              <h4>Join Date</h4>
-              <select className="filter-select">
-                <option>Last 30 days</option>
-                <option>Last 90 days</option>
-                <option>Last 6 months</option>
-                <option>All time</option>
+              <select
+                className="filter-select"
+                value={selectedDept}
+                onChange={(e) => setSelectedDept(e.target.value)}
+              >
+                <option value="all">All</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div className="filter-actions">
-              <button className="filter-reset-btn">Reset</button>
-              <button className="filter-apply-btn">Apply Filters</button>
+              <button
+                className="filter-reset-btn"
+                type="button"
+                onClick={() => {
+                  setSelectedRole("all");
+                  setSelectedStatus("all");
+                  setSelectedDept("all");
+                }}
+              >
+                Reset
+              </button>
+              <button className="filter-apply-btn" type="button" onClick={() => setFilterOpen(false)}>
+                Apply
+              </button>
             </div>
           </div>
         )}
 
-        {/* Users Display */}
-        {filteredUsers.length > 0 ? (
-          <>
-            {viewMode === 'grid' ? (
-              <div className="users-grid">
-                {filteredUsers.map((user) => (
-                  <UserCard key={user.id} user={user} />
-                ))}
-              </div>
-            ) : (
-              <div className="users-list">
-                {filteredUsers.map((user) => (
-                  <UserListItem key={user.id} user={user} />
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
+        {/* Data state */}
+        {loading ? (
+          <div className="empty-state">
+            <Loader2 size={64} strokeWidth={1} className="spinning" />
+            <h3>Loading users...</h3>
+            <p>Please wait</p>
+          </div>
+        ) : error ? (
+          <div className="empty-state">
+            <AlertCircle size={64} strokeWidth={1} />
+            <h3>Failed to load users</h3>
+            <p>{error}</p>
+            <button className="add-user-btn" type="button" onClick={loadUsers}>
+              Retry
+            </button>
+          </div>
+        ) : filteredUsers.length === 0 ? (
           <div className="empty-state">
             <Users size={64} strokeWidth={1} />
             <h3>No users found</h3>
             <p>Try adjusting your search or filters</p>
+          </div>
+        ) : viewMode === "grid" ? (
+          <div className="users-grid">
+            {filteredUsers.map((u) => (
+              <UserCard key={u._id} u={u} />
+            ))}
+          </div>
+        ) : (
+          <div className="users-list">
+            {filteredUsers.map((u) => (
+              <UserListItem key={u._id} u={u} />
+            ))}
+          </div>
+        )}
+
+        {/* Modal */}
+        {modalOpen && (
+          <div className="modal-overlay" onClick={closeModal}>
+            <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={closeModal}
+                aria-label="Close modal"
+              >
+                <X size={20} />
+              </button>
+
+              <div className="modal-header">
+                <div className="modal-header-icon">
+                  {modalMode === "create" ? <UserPlus size={24} /> : <Edit size={24} />}
+                </div>
+                <div className="modal-header-text">
+                  <h2 className="modal-title">
+                    {modalMode === "create" ? "Add New User" : "Edit User"}
+                  </h2>
+                  <p className="modal-subtitle">
+                    {modalMode === "create"
+                      ? "Create a new user account with role and permissions"
+                      : "Update user information and permissions"}
+                  </p>
+                </div>
+              </div>
+
+              <form className="modal-form" onSubmit={(e) => { e.preventDefault(); saveUser(); }}>
+                {/* Personal Information */}
+                <div className="form-section">
+                  <div className="section-header">
+                    <UserIcon size={20} />
+                    <h2>Personal Information</h2>
+                  </div>
+
+                  <div className="section-content">
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label htmlFor="modal-name">
+                          Name <span className="required">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          id="modal-name"
+                          value={form.name}
+                          onChange={(e) => onFormChange("name", e.target.value)}
+                          className={formErrors.name ? "error" : ""}
+                          placeholder="Enter full name"
+                        />
+                        {formErrors.name && (
+                          <span className="error-message">
+                            <AlertCircle size={14} />
+                            {formErrors.name}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="modal-email">
+                          <Mail size={16} />
+                          Email <span className="required">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          id="modal-email"
+                          value={form.email}
+                          onChange={(e) => onFormChange("email", e.target.value)}
+                          className={formErrors.email ? "error" : ""}
+                          placeholder="user@tadbeer.com"
+                          disabled={modalMode === "edit"}
+                        />
+                        {formErrors.email && (
+                          <span className="error-message">
+                            <AlertCircle size={14} />
+                            {formErrors.email}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {modalMode === "create" && (
+                      <div className="form-group full-width">
+                        <label htmlFor="modal-password">
+                          <Lock size={16} />
+                          Password <span className="required">*</span>
+                        </label>
+                        <input
+                          type="password"
+                          id="modal-password"
+                          value={form.password}
+                          onChange={(e) => onFormChange("password", e.target.value)}
+                          className={formErrors.password ? "error" : ""}
+                          placeholder="Min. 6 characters"
+                        />
+                        {formErrors.password && (
+                          <span className="error-message">
+                            <AlertCircle size={14} />
+                            {formErrors.password}
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="form-group full-width">
+                      <label htmlFor="modal-phone">
+                        <Phone size={16} />
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        id="modal-phone"
+                        value={form.phone}
+                        onChange={(e) => onFormChange("phone", e.target.value)}
+                        placeholder="+972-599-123456"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Work Information */}
+                <div className="form-section">
+                  <div className="section-header">
+                    <Shield size={20} />
+                    <h2>Work Information</h2>
+                  </div>
+
+                  <div className="section-content">
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label htmlFor="modal-role">
+                          <Shield size={16} />
+                          Role <span className="required">*</span>
+                        </label>
+                        <select
+                          id="modal-role"
+                          value={form.role}
+                          onChange={(e) => onFormChange("role", e.target.value)}
+                        >
+                          <option value="user">User</option>
+                          <option value="agent">Agent</option>
+                          <option value="manager">Manager</option>
+                          <option value="admin">Administrator</option>
+                        </select>
+
+                        {form.role && (
+                          <div className="role-preview">
+                            <span className={`role-badge ${roleBadgeClass[form.role]}`}>
+                              <Shield size={14} />
+                              {roleLabel[form.role]}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="modal-status">
+                          <Activity size={16} />
+                          Status
+                        </label>
+                        <select
+                          id="modal-status"
+                          value={form.status}
+                          onChange={(e) => onFormChange("status", e.target.value)}
+                        >
+                          <option value="available">Available</option>
+                          <option value="busy">Busy</option>
+                          <option value="offline">Offline</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label htmlFor="modal-department">
+                          <Users size={16} />
+                          Department
+                        </label>
+                        <input
+                          type="text"
+                          id="modal-department"
+                          value={form.department}
+                          onChange={(e) => onFormChange("department", e.target.value)}
+                          placeholder="e.g., IT, Support, Technical"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="modal-expertise">
+                          <UserCheck size={16} />
+                          Expertise
+                        </label>
+                        <input
+                          type="text"
+                          id="modal-expertise"
+                          value={form.expertise}
+                          onChange={(e) => onFormChange("expertise", e.target.value)}
+                          placeholder="networking, linux, security"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="form-actions">
+                  <button
+                    type="button"
+                    className="btn-cancel"
+                    onClick={closeModal}
+                    disabled={saving}
+                  >
+                    <X size={18} />
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="btn-submit"
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <div className="spinner" />
+                        {modalMode === "create" ? "Creating..." : "Updating..."}
+                      </>
+                    ) : modalMode === "create" ? (
+                      <>
+                        <Plus size={18} />
+                        Create User
+                      </>
+                    ) : (
+                      <>
+                        <Save size={18} />
+                        Update User
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
       </div>

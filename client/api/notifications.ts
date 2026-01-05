@@ -1,4 +1,4 @@
-// client/api/notifications.ts  (نفس مكان tickets.ts)
+// client/api/notifications.ts
 import api from "./api";
 
 export type NotificationType =
@@ -31,6 +31,12 @@ export async function markNotificationAsRead(id: string) {
 }
 
 export async function markAllNotificationsAsRead() {
-  const res = await api.patch("/api/notifications/read-all");
+  const res = await api.patch<{ message: string }>("/api/notifications/read-all");
+  return res.data;
+}
+
+// ✅ NEW
+export async function deleteNotification(id: string) {
+  const res = await api.delete<{ message: string }>(`/api/notifications/${id}`);
   return res.data;
 }
