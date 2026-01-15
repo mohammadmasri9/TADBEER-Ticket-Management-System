@@ -1,10 +1,11 @@
-/* src/style/MyTickets.css */
-
 /* ========== OOREDOO BRAND VARIABLES ========== */
 :root {
+  /* Brand Colors */
   --ooredoo-red: #ED1C24;
   --ooredoo-red-dark: #C51017;
   --ooredoo-red-light: #FF4A50;
+  
+  /* Greys */
   --ooredoo-grey-dark: #414042;
   --ooredoo-grey-medium: #808285;
   --ooredoo-grey-light: #A6A9AC;
@@ -12,21 +13,25 @@
   --ooredoo-grey-lightest: #E6E7E8;
   --ooredoo-bg-light: #F1F2F2;
   --ooredoo-white: #FFFFFF;
+  
+  /* Shadows */
   --ooredoo-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
   --ooredoo-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
   --ooredoo-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.15);
   --ooredoo-shadow-red: 0 6px 20px rgba(237, 28, 36, 0.25);
+  
+  /* Transitions */
   --transition-fast: 0.15s ease;
   --transition-base: 0.2s ease;
   --transition-slow: 0.3s ease;
+  
+  /* Border Radius */
   --border-radius-sm: 8px;
   --border-radius-md: 10px;
   --border-radius-lg: 12px;
   --border-radius-xl: 20px;
-}
-
-/* Status colors */
-:root {
+  
+  /* Status Colors */
   --status-open: #FFC107;
   --status-open-bg: rgba(255, 193, 7, 0.1);
   --status-progress: #2196F3;
@@ -37,6 +42,8 @@
   --status-resolved-bg: rgba(76, 175, 80, 0.1);
   --status-closed: #9e9e9e;
   --status-closed-bg: rgba(158, 158, 158, 0.1);
+  
+  /* Priority Colors */
   --priority-low: #4CAF50;
   --priority-low-bg: rgba(76, 175, 80, 0.1);
   --priority-medium: #FFC107;
@@ -64,18 +71,21 @@
 
 .my-tickets-content {
   flex: 1;
-  padding: 24px 32px;
+  padding: clamp(16px, 3vw, 32px);
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
 }
 
-/* ========== STATISTICS CARDS ========== */
+/* ========== STATISTICS SECTION ========== */
+.stats-section {
+  margin-bottom: 32px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 20px;
-  margin-bottom: 32px;
 }
 
 .stat-card {
@@ -91,10 +101,12 @@
   position: relative;
 }
 
-.stat-card:hover {
+.stat-card:hover,
+.stat-card:focus-visible {
   border-color: var(--ooredoo-red);
   box-shadow: var(--ooredoo-shadow-red);
   transform: translateY(-4px);
+  outline: none;
 }
 
 .stat-card::after {
@@ -141,21 +153,6 @@
   transform: scale(1.05) rotate(5deg);
 }
 
-.stat-trend {
-  font-size: 14px;
-  font-weight: 700;
-  font-family: 'Futura', Arial, sans-serif;
-  padding: 4px 0;
-}
-
-.stat-trend.up {
-  color: #4CAF50;
-}
-
-.stat-trend.down {
-  color: #F44336;
-}
-
 .stat-right {
   flex: 1;
   display: flex;
@@ -166,7 +163,7 @@
 }
 
 .stat-value {
-  font-size: 32px;
+  font-size: clamp(24px, 4vw, 32px);
   font-weight: 700;
   color: var(--ooredoo-grey-dark);
   font-family: 'Futura', Arial, sans-serif;
@@ -278,10 +275,13 @@
 }
 
 .filter-btn:hover,
-.sort-btn:hover {
+.sort-btn:hover,
+.filter-btn:focus-visible,
+.sort-btn:focus-visible {
   border-color: var(--ooredoo-red);
   color: var(--ooredoo-red);
   background: var(--ooredoo-bg-light);
+  outline: none;
 }
 
 .filter-btn.active {
@@ -349,8 +349,10 @@
   transition: all var(--transition-base);
 }
 
-.view-btn:hover {
+.view-btn:hover,
+.view-btn:focus-visible {
   color: var(--ooredoo-red);
+  outline: none;
 }
 
 .view-btn.active {
@@ -379,9 +381,11 @@
   box-shadow: var(--ooredoo-shadow-red);
 }
 
-.create-ticket-btn:hover {
+.create-ticket-btn:hover,
+.create-ticket-btn:focus-visible {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(237, 28, 36, 0.35);
+  outline: none;
 }
 
 .create-ticket-btn:active {
@@ -532,17 +536,18 @@
   transition: transform var(--transition-base);
 }
 
-.ticket-card:hover {
+.ticket-card:hover,
+.ticket-card:focus-visible {
   border-color: var(--ooredoo-red);
   box-shadow: var(--ooredoo-shadow-red);
   transform: translateY(-4px);
+  outline: none;
 }
 
 .ticket-card:hover::before {
   transform: scaleY(1);
 }
 
-/* Staggered animation */
 @keyframes fadeInUp {
   to {
     opacity: 1;
@@ -594,10 +599,12 @@
   justify-content: center;
 }
 
-.ticket-menu-btn:hover {
+.ticket-menu-btn:hover,
+.ticket-menu-btn:focus-visible {
   background: var(--ooredoo-red);
   color: var(--ooredoo-white);
   transform: rotate(90deg);
+  outline: none;
 }
 
 .ticket-title {
@@ -765,10 +772,12 @@
   transition: transform var(--transition-base);
 }
 
-.ticket-list-item:hover {
+.ticket-list-item:hover,
+.ticket-list-item:focus-visible {
   border-color: var(--ooredoo-red);
   box-shadow: var(--ooredoo-shadow-red);
   transform: translateX(4px);
+  outline: none;
 }
 
 .ticket-list-item:hover::before {
@@ -949,10 +958,12 @@
   margin-top: 8px;
 }
 
-.retry-btn:hover {
+.retry-btn:hover,
+.retry-btn:focus-visible {
   background: var(--ooredoo-red-dark);
   transform: translateY(-2px);
   box-shadow: var(--ooredoo-shadow-red);
+  outline: none;
 }
 
 /* ========== EMPTY STATE ========== */
@@ -1010,23 +1021,22 @@
   margin-top: 8px;
 }
 
-.reset-filters-btn:hover {
+.reset-filters-btn:hover,
+.reset-filters-btn:focus-visible {
   border-color: var(--ooredoo-red);
   color: var(--ooredoo-red);
   background: var(--ooredoo-bg-light);
   transform: translateY(-2px);
   box-shadow: var(--ooredoo-shadow-sm);
+  outline: none;
 }
 
-/* ========== RESPONSIVE - TABLET ========== */
-@media (max-width: 1024px) {
-  .my-tickets-content {
-    padding: 20px 24px;
-  }
+/* ========== RESPONSIVE DESIGN ========== */
 
+/* Tablet */
+@media (max-width: 1024px) {
   .stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
   }
 
   .tickets-grid {
@@ -1045,7 +1055,7 @@
   }
 }
 
-/* ========== RESPONSIVE - MOBILE ========== */
+/* Mobile */
 @media (max-width: 768px) {
   .my-tickets-content {
     padding: 16px;
@@ -1054,7 +1064,6 @@
   .stats-grid {
     grid-template-columns: 1fr;
     gap: 12px;
-    margin-bottom: 24px;
   }
 
   .stat-card::after {
@@ -1144,7 +1153,7 @@
   }
 }
 
-/* ========== RESPONSIVE - SMALL MOBILE ========== */
+/* Small Mobile */
 @media (max-width: 480px) {
   .my-tickets-content {
     padding: 12px;
@@ -1224,7 +1233,10 @@
 .filter-btn:focus-visible,
 .view-btn:focus-visible,
 .create-ticket-btn:focus-visible,
-.stat-card:focus-visible {
+.stat-card:focus-visible,
+.ticket-menu-btn:focus-visible,
+.reset-filters-btn:focus-visible,
+.retry-btn:focus-visible {
   outline: 3px solid var(--ooredoo-red);
   outline-offset: 2px;
 }

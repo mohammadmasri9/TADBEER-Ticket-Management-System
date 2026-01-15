@@ -47,23 +47,18 @@ const DashboardLayout: React.FC = () => {
     { id: 'training', label: 'Training', icon: <GraduationCap size={16} />, path: '/shared/training' },
   ];
 
-  // Close sidebar on mobile when clicking a link
-  const handleLinkClick = () => {
-    if (isMobile) {
-      setSidebarOpen(false);
-    }
-  };
-
-  // Toggle sidebar - works on ALL screen sizes
-  const handleToggleSidebar = () => {
-    setSidebarOpen(prev => !prev);
-  };
-
   // Detect mobile screen size
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
+      
+      // Auto-close sidebar on mobile, auto-open on desktop
+      if (mobile) {
+        setSidebarOpen(false);
+      } else {
+        setSidebarOpen(true);
+      }
     };
 
     // Set initial state
@@ -73,9 +68,48 @@ const DashboardLayout: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Close sidebar when route changes on mobile
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarOpen(false);
+    }
+  }, [location.pathname, isMobile]);
+
+  // Toggle sidebar handler
+  const handleToggleSidebar = () => {
+    setSidebarOpen(prev => !prev);
+  };
+
+  // Close sidebar handler
+  const closeSidebar = () => {
+    setSidebarOpen(false);
+  };
+
+  // Handle link click - close sidebar on mobile
+  const handleLinkClick = () => {
+    if (isMobile) {
+      closeSidebar();
+    }
+  };
+
+  // Handle overlay click - close sidebar
+  const handleOverlayClick = () => {
+    closeSidebar();
+  };
+
   // Get page title based on current route
   const getPageTitle = () => {
     const path = location.pathname;
+    if (path.includes('dashboard')) return 'Dashboard';
+    if (path.includes('tickets') && !path.includes('create')) return 'My Tickets';
+    if (path.includes('kanban')) return 'Kanban Board';
+    if (path.includes('createticket')) return 'Create Ticket';
+    if (path.includes('admin/users')) return 'Manage Users';
+    if (path.includes('admin/adduser')) return 'Add User';
+    if (path.includes('admin/sla')) return 'SLA Management';
+    if (path.includes('manager/reports')) return 'Reports';
+    if (path.includes('profile')) return 'Profile';
+    if (path.includes('notifications')) return 'Notifications';
     if (path.includes('completed')) return 'Completed Tickets';
     if (path.includes('active')) return 'Active Tickets';
     if (path.includes('pending')) return 'Pending Tasks';
@@ -131,7 +165,6 @@ const DashboardLayout: React.FC = () => {
                 className={`nav-item ${location.pathname === item.path ? 'active' : ''}`}
                 onClick={handleLinkClick}
               >
-                <ChevronRight size={16} className="nav-icon" />
                 <span className="nav-icon">{item.icon}</span>
                 <span className="nav-label">{item.label}</span>
               </Link>
@@ -141,17 +174,19 @@ const DashboardLayout: React.FC = () => {
 
         {/* Sidebar Footer */}
         <div className="sidebar-footer">
-          <button className="btn-create-ticket">Create ticket</button>
-          
-         </div>
+          <button className="btn-create-ticket" onClick={handleLinkClick}>
+            Create ticket
+          </button>
+        </div>
       </aside>
 
       {/* Overlay for mobile - only visible when sidebar is open on mobile */}
       {isMobile && sidebarOpen && (
         <div 
-          className="sidebar-overlay visible" 
-          onClick={() => setSidebarOpen(false)}
-        ></div>
+          className="sidebar-overlay" 
+          onClick={handleOverlayClick}
+          aria-hidden="true"
+        />
       )}
 
       {/* Main Content Area */}

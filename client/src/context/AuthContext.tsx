@@ -1,13 +1,18 @@
+// src/context/AuthContext.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import api from "../../api/api";
 
-export type Role = "employee" | "manager" | "admin" | "user" | "agent"; // supports both old + backend roles
+export type Role = "user" | "agent" | "manager" | "admin"; // ✅ unify with backend
 
 export type AuthUser = {
-  id: string; // frontend unified id
+  id: string;
   name: string;
   email: string;
   role: Role;
+
+  // ✅ critical for department authorization
+  departmentId?: string;
+  department?: string; // legacy/display only
 };
 
 type AuthState = {
@@ -22,13 +27,11 @@ type AuthState = {
 export const AuthContext = createContext<AuthState | undefined>(undefined);
 
 const LS_KEY = "tadbeer_auth";
-const TOKEN_KEY = "token"; // keep for axios interceptor compatibility
+const TOKEN_KEY = "token";
 
 function normalizeRole(role: any): Role {
-  // backend might send: user/agent/manager/admin OR employee/manager/admin
-  if (role === "employee") return "employee";
-  if (role === "manager") return "manager";
   if (role === "admin") return "admin";
+  if (role === "manager") return "manager";
   if (role === "agent") return "agent";
   return "user";
 }
@@ -39,6 +42,10 @@ function normalizeUser(u: any): AuthUser {
     name: u?.name || "User",
     email: u?.email || "",
     role: normalizeRole(u?.role),
+
+    // ✅ include department info (very important!)
+    departmentId: u?.departmentId?._id?.toString?.() ?? u?.departmentId?.toString?.() ?? undefined,
+    department: u?.department ?? undefined,
   };
 }
 
@@ -47,7 +54,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load session from localStorage on start
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -56,11 +62,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (parsed?.token) {
           setUser(parsed.user || null);
           setToken(parsed.token);
-          localStorage.setItem(TOKEN_KEY, parsed.token); // ensure axios can read it
+          localStorage.setItem(TOKEN_KEY, parsed.token);
         }
       }
     } catch {
-      // ignore corrupted storage
       localStorage.removeItem(LS_KEY);
       localStorage.removeItem(TOKEN_KEY);
     } finally {
@@ -72,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(u);
     setToken(t);
     localStorage.setItem(LS_KEY, JSON.stringify({ user: u, token: t }));
-    localStorage.setItem(TOKEN_KEY, t); // axios interceptor reads this
+    localStorage.setItem(TOKEN_KEY, t);
   };
 
   const clearSession = () => {
@@ -82,12 +87,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.removeItem(TOKEN_KEY);
   };
 
-  // ✅ Real API login
   const login: AuthState["login"] = async ({ email, password }) => {
     if (!email || !password) throw new Error("Missing credentials");
 
-    // Backend: POST /api/auth/login
-    // Expected response: { token, user }
     const res = await api.post("/api/auth/login", {
       email: email.toLowerCase(),
       password,
@@ -96,19 +98,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const t = res?.data?.token;
     const u = res?.data?.user;
 
-    if (!t || !u) {
-      throw new Error("Invalid server response (missing token/user)");
-    }
+    if (!t || !u) throw new Error("Invalid server response (missing token/user)");
 
     const normalized = normalizeUser(u);
     saveSession(normalized, t);
   };
 
-  const logout = () => {
-    clearSession();
-  };
+  const logout = () => clearSession();
 
-  // ✅ Optional but very useful: validate token + refresh user data
   const refreshMe: AuthState["refreshMe"] = async () => {
     const t = localStorage.getItem(TOKEN_KEY);
     if (!t) {
@@ -120,10 +117,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await api.get("/api/auth/me");
       const u = res?.data?.user;
       if (!u) throw new Error("No user returned");
+
       const normalized = normalizeUser(u);
       saveSession(normalized, t);
     } catch {
-      // token invalid/expired → force logout
       clearSession();
     }
   };

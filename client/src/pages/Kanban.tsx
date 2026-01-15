@@ -41,6 +41,7 @@ import {
   MessageSquare,
   Paperclip,
   GripVertical,
+  X,
 } from "lucide-react";
 
 interface Ticket {
@@ -71,7 +72,7 @@ const SortableTicketCard: React.FC<{ ticket: Ticket }> = ({ ticket }) => {
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.65 : 1,
+    opacity: isDragging ? 0.5 : 1,
   };
 
   const priorityClass: Record<Ticket["priority"], string> = {
@@ -134,7 +135,10 @@ const SortableTicketCard: React.FC<{ ticket: Ticket }> = ({ ticket }) => {
           <div className="meta-item" title="Due date">
             <Calendar size={14} />
             <span>
-              {new Date(ticket.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              {new Date(ticket.dueDate).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}
             </span>
           </div>
         </div>
@@ -165,7 +169,7 @@ const Kanban: React.FC = () => {
       description: "Users are reporting issues with the login page on mobile devices",
       priority: "medium",
       assignee: { name: "Ahmad Hassan" },
-      dueDate: "2025-12-25",
+      dueDate: "2026-01-25",
       tags: ["UI", "Mobile"],
       comments: 3,
       attachments: 1,
@@ -177,7 +181,7 @@ const Kanban: React.FC = () => {
       description: "Implement dark mode theme across the application",
       priority: "low",
       assignee: { name: "Sara Ali" },
-      dueDate: "2025-12-30",
+      dueDate: "2026-01-30",
       tags: ["Enhancement", "UI"],
       comments: 5,
       attachments: 0,
@@ -189,7 +193,7 @@ const Kanban: React.FC = () => {
       description: "Set up automated daily database backups",
       priority: "high",
       assignee: { name: "Mohammed Khalil" },
-      dueDate: "2025-12-22",
+      dueDate: "2026-01-22",
       tags: ["Backend", "Database"],
       comments: 2,
       attachments: 2,
@@ -201,7 +205,7 @@ const Kanban: React.FC = () => {
       description: "Implement rate limiting for public API endpoints",
       priority: "urgent",
       assignee: { name: "Omar Nasser" },
-      dueDate: "2025-12-21",
+      dueDate: "2026-01-21",
       tags: ["Security", "API"],
       comments: 7,
       attachments: 3,
@@ -213,7 +217,7 @@ const Kanban: React.FC = () => {
       description: "Redesign user profile page with new components",
       priority: "medium",
       assignee: { name: "Layla Ibrahim" },
-      dueDate: "2025-12-23",
+      dueDate: "2026-01-23",
       tags: ["UI", "Design"],
       comments: 8,
       attachments: 5,
@@ -225,7 +229,7 @@ const Kanban: React.FC = () => {
       description: "Implement email notifications for ticket updates",
       priority: "high",
       assignee: { name: "Fatima Yousef" },
-      dueDate: "2025-12-24",
+      dueDate: "2026-01-24",
       tags: ["Feature", "Backend"],
       comments: 4,
       attachments: 1,
@@ -237,7 +241,7 @@ const Kanban: React.FC = () => {
       description: "Add password reset via email",
       priority: "high",
       assignee: { name: "Youssef Ahmed" },
-      dueDate: "2025-12-20",
+      dueDate: "2026-01-20",
       tags: ["Security", "Feature"],
       comments: 6,
       attachments: 2,
@@ -249,7 +253,7 @@ const Kanban: React.FC = () => {
       description: "Update all footer links with correct URLs",
       priority: "low",
       assignee: { name: "Nour Hassan" },
-      dueDate: "2025-12-19",
+      dueDate: "2026-01-19",
       tags: ["UI", "Content"],
       comments: 1,
       attachments: 0,
@@ -275,7 +279,7 @@ const Kanban: React.FC = () => {
 
   const getTicketsByColumn = (columnId: string) => {
     const q = searchQuery.trim();
-    return tickets.filter((t) => t.columnId === columnId).filter((t) => filterTicket(t, q));
+    return tickets.filter((t) => t.columnId === columnId && filterTicket(t, q));
   };
 
   const handleDragStart = (event: DragStartEvent) => setActiveId(event.active.id as string);
@@ -340,12 +344,13 @@ const Kanban: React.FC = () => {
       <Header />
       <div className="kanban-page">
         <div className="kanban-content">
-          {/* Responsive Page Header */}
+          {/* Page Header */}
           <div className="kanban-header">
             <div className="kanban-header-left">
               <h1 className="kanban-title">Kanban Board</h1>
               <p className="kanban-subtitle">
-                {tickets.length} tickets across {columns.length} columns
+                {tickets.length} ticket{tickets.length !== 1 ? "s" : ""} across {columns.length}{" "}
+                columns
               </p>
             </div>
 
@@ -357,7 +362,18 @@ const Kanban: React.FC = () => {
                   placeholder="Search tickets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  aria-label="Search tickets"
                 />
+                {searchQuery && (
+                  <button
+                    className="clear-search-btn"
+                    onClick={() => setSearchQuery("")}
+                    type="button"
+                    aria-label="Clear search"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
 
               <button className="kanban-filter-btn" type="button">
@@ -404,9 +420,15 @@ const Kanban: React.FC = () => {
                       strategy={verticalListSortingStrategy}
                     >
                       <div className="column-content" id={column.id}>
-                        {columnTickets.map((ticket) => (
-                          <SortableTicketCard key={ticket.id} ticket={ticket} />
-                        ))}
+                        {columnTickets.length === 0 ? (
+                          <div className="empty-column">
+                            <p>No tickets</p>
+                          </div>
+                        ) : (
+                          columnTickets.map((ticket) => (
+                            <SortableTicketCard key={ticket.id} ticket={ticket} />
+                          ))
+                        )}
 
                         <button className="add-card-btn" type="button">
                           <Plus size={16} />
@@ -427,10 +449,12 @@ const Kanban: React.FC = () => {
                   </div>
                   <div className="ticket-header">
                     <span className={`priority-badge priority-${activeTicket.priority}`}>
-                      {activeTicket.priority.charAt(0).toUpperCase() + activeTicket.priority.slice(1)}
+                      {activeTicket.priority.charAt(0).toUpperCase() +
+                        activeTicket.priority.slice(1)}
                     </span>
                   </div>
                   <h4 className="ticket-title">{activeTicket.title}</h4>
+                  <p className="ticket-description">{activeTicket.description}</p>
                 </div>
               ) : null}
             </DragOverlay>

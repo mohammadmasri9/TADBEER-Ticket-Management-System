@@ -5,12 +5,22 @@ export type TicketCategory = "Technical" | "Security" | "Feature" | "Account" | 
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
 export type TicketStatus = "open" | "in-progress" | "pending" | "resolved" | "closed";
 
+// ✅ Watcher permission
+export type WatcherPermission = "read" | "write";
+
 export interface ITicketAttachment {
   filename: string;
   url: string;
   mimetype?: string;
   size?: number;
   uploadedAt?: Date;
+}
+
+export interface ITicketWatcher {
+  userId: Types.ObjectId;
+  permission: WatcherPermission; // read | write
+  addedBy?: Types.ObjectId;
+  addedAt?: Date;
 }
 
 export interface ITicket extends Document {
@@ -23,9 +33,14 @@ export interface ITicket extends Document {
   createdBy: Types.ObjectId;
   assignee?: Types.ObjectId;
 
+  departmentId: Types.ObjectId;
+
   dueDate?: Date;
   attachments?: ITicketAttachment[];
   tags?: string[];
+
+  // ✅ Watchers
+  watchers?: ITicketWatcher[];
 
   estimatedTime?: number;
   actualTime?: number;
@@ -51,6 +66,16 @@ const AttachmentSchema = new Schema<ITicketAttachment>(
   { _id: false }
 );
 
+const WatcherSchema = new Schema<ITicketWatcher>(
+  {
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    permission: { type: String, enum: ["read", "write"], default: "read" },
+    addedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    addedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const TicketSchema = new Schema<ITicket>(
   {
     title: { type: String, required: true, trim: true, maxlength: 200 },
@@ -61,15 +86,30 @@ const TicketSchema = new Schema<ITicket>(
       required: true,
       enum: ["Technical", "Security", "Feature", "Account", "Bug"],
     },
-    priority: { type: String, enum: ["low", "medium", "high", "urgent"], default: "medium" },
-    status: { type: String, enum: ["open", "in-progress", "pending", "resolved", "closed"], default: "open" },
+
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high", "urgent"],
+      default: "medium",
+    },
+
+    status: {
+      type: String,
+      enum: ["open", "in-progress", "pending", "resolved", "closed"],
+      default: "open",
+    },
 
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    assignee: { type: Schema.Types.ObjectId, ref: "User" },
+    assignee: { type: Schema.Types.ObjectId, ref: "User", default: null },
+
+    departmentId: { type: Schema.Types.ObjectId, ref: "Department", required: true },
 
     dueDate: { type: Date },
     attachments: { type: [AttachmentSchema], default: [] },
     tags: { type: [String], default: [] },
+
+    // ✅ Watchers
+    watchers: { type: [WatcherSchema], default: [] },
 
     estimatedTime: { type: Number },
     actualTime: { type: Number },
@@ -89,7 +129,14 @@ TicketSchema.index({ assignee: 1, status: 1 });
 TicketSchema.index({ createdBy: 1, status: 1 });
 TicketSchema.index({ category: 1, createdAt: -1 });
 
-// ✅ FIX: force collection name to match MongoDB Compass collection "Tickets"
+// Department routing
+TicketSchema.index({ departmentId: 1, assignee: 1, status: 1, createdAt: -1 });
+TicketSchema.index({ departmentId: 1, createdAt: -1 });
+
+// ✅ Watchers index
+TicketSchema.index({ "watchers.userId": 1, createdAt: -1 });
+
+// Force collection name "Tickets"
 const Ticket: Model<ITicket> =
   mongoose.models.Ticket || mongoose.model<ITicket>("Ticket", TicketSchema, "Tickets");
 

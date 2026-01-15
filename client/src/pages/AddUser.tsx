@@ -1,5 +1,5 @@
 // src/pages/AddUser.tsx
-import React, { Activity, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Footer from "../components/Footer";
@@ -29,6 +29,7 @@ import {
 
 // ✅ API
 import { createUser, CreateUserPayload, UserRole, UserStatus } from "../../api/users";
+import { getDepartments, DepartmentDTO, updateDepartment } from "../../api/departments";
 
 interface FormData {
   firstName: string;
@@ -36,11 +37,11 @@ interface FormData {
   email: string;
   phone: string;
 
-  role: UserRole | "";          // ✅ backend roles
-  department: string;
-  status: UserStatus;           // ✅ backend status
+  role: UserRole | "";
+  departmentId: string; // ✅ NEW: real departmentId
+  status: UserStatus;
 
-  // Extra UI fields (NOT sent to backend now)
+  // UI-only fields (not sent to backend)
   position: string;
   location: string;
   employeeId: string;
@@ -61,15 +62,6 @@ interface FormErrors {
 const AddUser: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  const [apiError, setApiError] = useState("");
-  const [errors, setErrors] = useState<FormErrors>({});
 
   // ✅ Role-based access check
   if (user?.role !== "admin") {
@@ -105,8 +97,9 @@ const AddUser: React.FC = () => {
     lastName: "",
     email: "",
     phone: "",
+
     role: "",
-    department: "",
+    departmentId: "",
     status: "available",
 
     position: "",
@@ -116,10 +109,56 @@ const AddUser: React.FC = () => {
 
     password: "",
     confirmPassword: "",
+
     bio: "",
     language: "en",
     timezone: "Asia/Jerusalem",
   });
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  const [apiError, setApiError] = useState("");
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  // ✅ Departments
+  const [departments, setDepartments] = useState<DepartmentDTO[]>([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [deptError, setDeptError] = useState("");
+
+  // ✅ Only for manager role: should we set him as dept manager?
+  const [setAsDeptManager, setSetAsDeptManager] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        setDeptLoading(true);
+        setDeptError("");
+        const data = await getDepartments();
+        if (!mounted) return;
+        setDepartments(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        if (!mounted) return;
+        setDeptError(e?.response?.data?.message || e?.message || "Failed to load departments");
+        setDepartments([]);
+      } finally {
+        if (!mounted) return;
+        setDeptLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const selectedDept = useMemo(() => {
+    return departments.find((d) => d._id === formData.departmentId) || null;
+  }, [departments, formData.departmentId]);
 
   const fullName = useMemo(() => {
     const fn = formData.firstName.trim();
@@ -128,7 +167,7 @@ const AddUser: React.FC = () => {
   }, [formData.firstName, formData.lastName]);
 
   const handleCancel = () => {
-    navigate("/user-management"); // ✅ match your user management route
+    navigate("/user-management");
   };
 
   const handleChange = (
@@ -141,17 +180,21 @@ const AddUser: React.FC = () => {
       [name]: value,
     }));
 
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: "" }));
+    // if role changed away from manager, hide manager checkbox behavior
+    if (name === "role" && value !== "manager") {
+      setSetAsDeptManager(false);
+    }
+    if (name === "role" && value === "manager") {
+      setSetAsDeptManager(true);
     }
 
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
     if (apiError) setApiError("");
   };
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
 
-    // Required fields (aligned with backend + your UI)
     if (!formData.firstName.trim()) newErrors.firstName = "First name is required";
     if (!formData.lastName.trim()) newErrors.lastName = "Last name is required";
 
@@ -161,15 +204,19 @@ const AddUser: React.FC = () => {
       newErrors.email = "Invalid email format";
     }
 
-    // phone optional in backend, but you made it required before → keep required
     if (!formData.phone.trim()) newErrors.phone = "Phone number is required";
-
     if (!formData.role) newErrors.role = "Role is required";
 
-    // department optional in backend, but you made it required before → keep required
-    if (!formData.department.trim()) newErrors.department = "Department is required";
+    // ✅ For your workflow: department is required for all except admin
+    if (formData.role && formData.role !== "admin") {
+      if (!formData.departmentId) newErrors.departmentId = "Department is required";
+    }
 
-    // Password validation (backend requires min 6; you required 8 before)
+    // ✅ If manager role and setAsDeptManager => department must be selected
+    if (formData.role === "manager" && setAsDeptManager && !formData.departmentId) {
+      newErrors.departmentId = "Manager must have a department";
+    }
+
     if (!formData.password) {
       newErrors.password = "Password is required";
     } else if (formData.password.length < 6) {
@@ -204,23 +251,31 @@ const AddUser: React.FC = () => {
     setApiError("");
 
     try {
-      // ✅ send only what backend accepts
-      const payload: CreateUserPayload = {
+      // ✅ Send what backend accepts (+ departmentId as an extra if backend supports it)
+      const payload: any = {
         name: fullName,
         email: formData.email.trim().toLowerCase(),
         password: formData.password,
         role: formData.role as UserRole,
-        department: formData.department.trim() || undefined,
         status: formData.status,
         phone: formData.phone.trim() || undefined,
-        // expertise not in your form now (optional)
+
+        // keep department string for compatibility (optional)
+        department: selectedDept?.name || undefined,
+
+        // ✅ NEW: departmentId (recommended to store in backend user model)
+        departmentId: formData.departmentId || undefined,
       };
 
-      await createUser(payload);
+      const createdUser: any = await createUser(payload);
+
+      // ✅ If role=manager and checkbox enabled -> set this user as department manager
+      if (formData.role === "manager" && setAsDeptManager && formData.departmentId && createdUser?._id) {
+        await updateDepartment(formData.departmentId, { managerId: createdUser._id });
+      }
 
       setSuccess(true);
 
-      // redirect after short delay
       setTimeout(() => {
         navigate("/user-management");
       }, 1200);
@@ -249,14 +304,11 @@ const AddUser: React.FC = () => {
             </div>
             <div className="header-text">
               <h1 className="page-title">Add New User</h1>
-              <p className="page-subtitle">
-                Create a new user account with role and permissions
-              </p>
+              <p className="page-subtitle">Create a new user account with role and department</p>
             </div>
           </div>
         </div>
 
-        {/* Success Message */}
         {success && (
           <div className="success-banner">
             <CheckCircle size={24} />
@@ -267,9 +319,11 @@ const AddUser: React.FC = () => {
           </div>
         )}
 
-        {/* API Error */}
         {apiError && (
-          <div className="error-banner" style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
+          <div
+            className="error-banner"
+            style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}
+          >
             <AlertCircle size={20} />
             <div>
               <strong>Failed:</strong> {apiError}
@@ -277,7 +331,6 @@ const AddUser: React.FC = () => {
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="add-user-form">
           {/* Personal Information */}
           <div className="form-section">
@@ -334,8 +387,7 @@ const AddUser: React.FC = () => {
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="email">
-                    <Mail size={16} />
-                    Email Address <span className="required">*</span>
+                    <Mail size={16} /> Email Address <span className="required">*</span>
                   </label>
                   <input
                     type="email"
@@ -356,8 +408,7 @@ const AddUser: React.FC = () => {
 
                 <div className="form-group">
                   <label htmlFor="phone">
-                    <Phone size={16} />
-                    Phone Number <span className="required">*</span>
+                    <Phone size={16} /> Phone Number <span className="required">*</span>
                   </label>
                   <input
                     type="tel"
@@ -377,11 +428,9 @@ const AddUser: React.FC = () => {
                 </div>
               </div>
 
-              {/* Keep location UI (not sent now) */}
               <div className="form-group full-width">
                 <label htmlFor="location">
-                  <MapPin size={16} />
-                  Location
+                  <MapPin size={16} /> Location
                 </label>
                 <input
                   type="text"
@@ -404,11 +453,9 @@ const AddUser: React.FC = () => {
 
             <div className="section-content">
               <div className="form-row">
-                {/* Keep employeeId UI (not sent now) */}
                 <div className="form-group">
                   <label htmlFor="employeeId">
-                    <Building size={16} />
-                    Employee ID
+                    <Building size={16} /> Employee ID
                   </label>
                   <input
                     type="text"
@@ -420,11 +467,9 @@ const AddUser: React.FC = () => {
                   />
                 </div>
 
-                {/* Keep startDate UI (not sent now) */}
                 <div className="form-group">
                   <label htmlFor="startDate">
-                    <Calendar size={16} />
-                    Start Date
+                    <Calendar size={16} /> Start Date
                   </label>
                   <input
                     type="date"
@@ -437,11 +482,9 @@ const AddUser: React.FC = () => {
               </div>
 
               <div className="form-row">
-                {/* Keep position UI (not sent now) */}
                 <div className="form-group">
                   <label htmlFor="position">
-                    <Briefcase size={16} />
-                    Position
+                    <Briefcase size={16} /> Position
                   </label>
                   <input
                     type="text"
@@ -453,30 +496,39 @@ const AddUser: React.FC = () => {
                   />
                 </div>
 
+                {/* ✅ Department from API */}
                 <div className="form-group">
-                  <label htmlFor="department">
-                    <Building size={16} />
-                    Department <span className="required">*</span>
+                  <label htmlFor="departmentId">
+                    <Building size={16} /> Department{" "}
+                    {formData.role && formData.role !== "admin" ? <span className="required">*</span> : null}
                   </label>
+
                   <select
-                    id="department"
-                    name="department"
-                    value={formData.department}
+                    id="departmentId"
+                    name="departmentId"
+                    value={formData.departmentId}
                     onChange={handleChange}
-                    className={errors.department ? "error" : ""}
+                    className={errors.departmentId ? "error" : ""}
+                    disabled={deptLoading}
                   >
-                    <option value="">Select Department</option>
-                    <option value="IT">IT Department</option>
-                    <option value="Support">Support</option>
-                    <option value="Technical">Technical</option>
-                    <option value="Security">Security</option>
-                    <option value="HR">Human Resources</option>
-                    <option value="Finance">Finance</option>
+                    <option value="">{deptLoading ? "Loading departments..." : "Select Department"}</option>
+                    {departments.map((d) => (
+                      <option key={d._id} value={d._id}>
+                        {d.name}
+                      </option>
+                    ))}
                   </select>
-                  {errors.department && (
+
+                  {deptError && (
                     <span className="error-message">
                       <AlertCircle size={14} />
-                      {errors.department}
+                      {deptError}
+                    </span>
+                  )}
+                  {errors.departmentId && (
+                    <span className="error-message">
+                      <AlertCircle size={14} />
+                      {errors.departmentId}
                     </span>
                   )}
                 </div>
@@ -485,9 +537,9 @@ const AddUser: React.FC = () => {
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="role">
-                    <Shield size={16} />
-                    Role <span className="required">*</span>
+                    <Shield size={16} /> Role <span className="required">*</span>
                   </label>
+
                   <select
                     id="role"
                     name="role"
@@ -520,25 +572,45 @@ const AddUser: React.FC = () => {
                       </span>
                     </div>
                   )}
+
+                  {/* ✅ Manager assignment rule */}
+                  {formData.role === "manager" && (
+                    <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                      <input
+                        id="setAsDeptManager"
+                        type="checkbox"
+                        checked={setAsDeptManager}
+                        onChange={(e) => setSetAsDeptManager(e.target.checked)}
+                      />
+                      <label htmlFor="setAsDeptManager" style={{ cursor: "pointer" }}>
+                        Set this user as the <strong>Department Manager</strong>
+                      </label>
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">
                   <label htmlFor="status">
-                    <ActivityIcon size={14} />
-                    Status
+                    <ActivityIcon size={14} /> Status
                   </label>
-                  <select
-                    id="status"
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                  >
+                  <select id="status" name="status" value={formData.status} onChange={handleChange}>
                     <option value="available">Available</option>
                     <option value="busy">Busy</option>
                     <option value="offline">Offline</option>
                   </select>
                 </div>
               </div>
+
+              {/* Optional info reminder */}
+              {formData.role === "manager" && setAsDeptManager && selectedDept?.managerId && (
+                <div className="error-banner" style={{ marginTop: 12 }}>
+                  <AlertCircle size={18} />
+                  <div style={{ marginLeft: 10 }}>
+                    <strong>Note:</strong> This department already has a manager.
+                    Updating will replace the current manager.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -553,8 +625,7 @@ const AddUser: React.FC = () => {
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="password">
-                    <Lock size={16} />
-                    Password <span className="required">*</span>
+                    <Lock size={16} /> Password <span className="required">*</span>
                   </label>
 
                   <div className="password-input">
@@ -586,8 +657,7 @@ const AddUser: React.FC = () => {
 
                 <div className="form-group">
                   <label htmlFor="confirmPassword">
-                    <Lock size={16} />
-                    Confirm Password <span className="required">*</span>
+                    <Lock size={16} /> Confirm Password <span className="required">*</span>
                   </label>
 
                   <div className="password-input">
@@ -631,15 +701,9 @@ const AddUser: React.FC = () => {
               <div className="form-row">
                 <div className="form-group">
                   <label htmlFor="language">
-                    <Globe size={16} />
-                    Language
+                    <Globe size={16} /> Language
                   </label>
-                  <select
-                    id="language"
-                    name="language"
-                    value={formData.language}
-                    onChange={handleChange}
-                  >
+                  <select id="language" name="language" value={formData.language} onChange={handleChange}>
                     <option value="en">English</option>
                     <option value="ar">العربية</option>
                   </select>
@@ -647,27 +711,21 @@ const AddUser: React.FC = () => {
 
                 <div className="form-group">
                   <label htmlFor="timezone">
-                    <Globe size={16} />
-                    Timezone
+                    <Globe size={16} /> Timezone
                   </label>
-                  <select
-                    id="timezone"
-                    name="timezone"
-                    value={formData.timezone}
-                    onChange={handleChange}
-                  >
+                  <select id="timezone" name="timezone" value={formData.timezone} onChange={handleChange}>
                     <option value="Asia/Jerusalem">Asia/Jerusalem (GMT+2)</option>
+                    <option value="Asia/Hebron">Asia/Hebron (GMT+2)</option>
+                    <option value="Asia/Dubai">Asia/Dubai (GMT+4)</option>
                     <option value="Europe/London">Europe/London (GMT+0)</option>
                     <option value="America/New_York">America/New_York (GMT-5)</option>
-                    <option value="Asia/Dubai">Asia/Dubai (GMT+4)</option>
                   </select>
                 </div>
               </div>
 
               <div className="form-group full-width">
                 <label htmlFor="bio">
-                  <FileText size={16} />
-                  Bio / Notes
+                  <FileText size={16} /> Bio / Notes
                 </label>
                 <textarea
                   id="bio"
@@ -683,14 +741,8 @@ const AddUser: React.FC = () => {
 
           {/* Actions */}
           <div className="form-actions">
-            <button
-              type="button"
-              className="btn-cancel"
-              onClick={handleCancel}
-              disabled={loading}
-            >
-              <X size={18} />
-              Cancel
+            <button type="button" className="btn-cancel" onClick={handleCancel} disabled={loading}>
+              <X size={18} /> Cancel
             </button>
 
             <button type="submit" className="btn-submit" disabled={loading || success}>

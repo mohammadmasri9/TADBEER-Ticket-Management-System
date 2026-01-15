@@ -1,10 +1,11 @@
-/* src/style/Dashboard.css */
-
 /* ========== OOREDOO BRAND VARIABLES ========== */
 :root {
+  /* Brand Colors */
   --ooredoo-red: #ED1C24;
   --ooredoo-red-dark: #C51017;
   --ooredoo-red-light: #FF4A50;
+  
+  /* Greys */
   --ooredoo-grey-dark: #414042;
   --ooredoo-grey-medium: #808285;
   --ooredoo-grey-light: #A6A9AC;
@@ -12,21 +13,25 @@
   --ooredoo-grey-lightest: #E6E7E8;
   --ooredoo-bg-light: #F1F2F2;
   --ooredoo-white: #FFFFFF;
+  
+  /* Shadows */
   --ooredoo-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
   --ooredoo-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
   --ooredoo-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.15);
   --ooredoo-shadow-red: 0 6px 20px rgba(237, 28, 36, 0.25);
+  
+  /* Transitions */
   --transition-fast: 0.15s ease;
   --transition-base: 0.2s ease;
   --transition-slow: 0.3s ease;
+  
+  /* Border Radius */
   --border-radius-sm: 8px;
   --border-radius-md: 10px;
   --border-radius-lg: 12px;
   --border-radius-xl: 20px;
-}
-
-/* Status colors */
-:root {
+  
+  /* Status Colors */
   --status-open: #FFC107;
   --status-open-bg: rgba(255, 193, 7, 0.1);
   --status-progress: #2196F3;
@@ -37,6 +42,8 @@
   --status-resolved-bg: rgba(76, 175, 80, 0.1);
   --status-closed: #9e9e9e;
   --status-closed-bg: rgba(158, 158, 158, 0.1);
+  
+  /* Priority Colors */
   --priority-low: #4CAF50;
   --priority-low-bg: rgba(76, 175, 80, 0.1);
   --priority-medium: #FFC107;
@@ -64,18 +71,88 @@
 
 .dashboard-content {
   flex: 1;
-  padding: 24px 32px;
+  padding: clamp(16px, 3vw, 32px);
   max-width: 1600px;
   width: 100%;
   margin: 0 auto;
 }
 
-/* ========== STATISTICS CARDS ========== */
+/* ========== DASHBOARD HEADER ========== */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* ========== SCOPE SELECTOR ========== */
+.scope-selector {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.scope-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--ooredoo-white);
+  border: 2px solid var(--ooredoo-grey-lightest);
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  color: var(--ooredoo-grey-dark);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Futura', Arial, sans-serif;
+  transition: all var(--transition-base);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.scope-btn:hover {
+  border-color: var(--ooredoo-red);
+  color: var(--ooredoo-red);
+  background: var(--ooredoo-bg-light);
+  transform: translateY(-2px);
+}
+
+.scope-btn.active {
+  background: var(--ooredoo-red);
+  border-color: var(--ooredoo-red);
+  color: var(--ooredoo-white);
+}
+
+.current-view {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Futura', Arial, sans-serif;
+}
+
+.view-label {
+  font-size: 14px;
+  color: var(--ooredoo-grey-medium);
+  font-weight: 600;
+}
+
+.view-value {
+  font-size: 14px;
+  color: var(--ooredoo-grey-dark);
+  font-weight: 700;
+}
+
+/* ========== STATISTICS SECTION ========== */
+.stats-section {
+  margin-bottom: 32px;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 20px;
-  margin-bottom: 32px;
 }
 
 .stat-card {
@@ -91,17 +168,12 @@
   position: relative;
 }
 
-.stat-card:hover {
+.stat-card:hover,
+.stat-card:focus-visible {
   border-color: var(--ooredoo-red);
   box-shadow: var(--ooredoo-shadow-red);
   transform: translateY(-4px);
-}
-
-.stat-header {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
+  outline: none;
 }
 
 .stat-icon {
@@ -122,21 +194,6 @@
   transform: scale(1.05) rotate(5deg);
 }
 
-.stat-trend {
-  font-size: 14px;
-  font-weight: 700;
-  font-family: 'Futura', Arial, sans-serif;
-  padding: 4px 0;
-}
-
-.stat-trend.up {
-  color: #4CAF50;
-}
-
-.stat-trend.down {
-  color: #F44336;
-}
-
 .stat-body {
   flex: 1;
   display: flex;
@@ -147,7 +204,7 @@
 }
 
 .stat-value {
-  font-size: 32px;
+  font-size: clamp(24px, 4vw, 32px);
   font-weight: 700;
   color: var(--ooredoo-grey-dark);
   font-family: 'Futura', Arial, sans-serif;
@@ -171,6 +228,61 @@
   gap: 16px;
 }
 
+/* ========== TABS ========== */
+.tabs {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--ooredoo-white);
+  border: 2px solid var(--ooredoo-grey-lightest);
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  color: var(--ooredoo-grey-medium);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Futura', Arial, sans-serif;
+  transition: all var(--transition-base);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  color: var(--ooredoo-red);
+  border-color: var(--ooredoo-red);
+  background: var(--ooredoo-bg-light);
+  outline: none;
+}
+
+.tab.active {
+  color: var(--ooredoo-white);
+  background: var(--ooredoo-red);
+  border-color: var(--ooredoo-red);
+}
+
+.tab svg {
+  transition: transform var(--transition-base);
+}
+
+.tab.active svg {
+  transform: rotate(180deg);
+}
+
+/* ========== FILTER BUTTON ========== */
 .section-actions {
   display: flex;
   gap: 12px;
@@ -227,15 +339,47 @@
   }
 }
 
+.filter-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.filter-header h4 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ooredoo-grey-dark);
+  font-family: 'Futura', Arial, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+
+.filter-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--ooredoo-bg-light);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  color: var(--ooredoo-grey-dark);
+  cursor: pointer;
+  transition: all var(--transition-base);
+}
+
+.filter-close:hover {
+  background: var(--ooredoo-red);
+  color: var(--ooredoo-white);
+}
+
 .filter-section {
   margin-bottom: 20px;
 }
 
-.filter-section:last-of-type {
-  margin-bottom: 0;
-}
-
-.filter-section h4 {
+.filter-section h5 {
   font-size: 14px;
   font-weight: 700;
   color: var(--ooredoo-grey-dark);
@@ -309,58 +453,6 @@
   box-shadow: var(--ooredoo-shadow-red);
 }
 
-/* ========== TABS ========== */
-.tabs {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  background: var(--ooredoo-white);
-  border: 2px solid var(--ooredoo-grey-lightest);
-  border-radius: var(--border-radius-md);
-  cursor: pointer;
-  color: var(--ooredoo-grey-medium);
-  font-size: 14px;
-  font-weight: 700;
-  font-family: 'Futura', Arial, sans-serif;
-  transition: all var(--transition-base);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
-}
-
-.tab:hover {
-  color: var(--ooredoo-red);
-  border-color: var(--ooredoo-red);
-  background: var(--ooredoo-bg-light);
-}
-
-.tab.active {
-  color: var(--ooredoo-white);
-  background: var(--ooredoo-red);
-  border-color: var(--ooredoo-red);
-}
-
-.tab svg {
-  transition: transform var(--transition-base);
-}
-
-.tab.active svg {
-  transform: rotate(180deg);
-}
-
 /* ========== DASHBOARD SECTION ========== */
 .dashboard-section {
   margin-top: 0;
@@ -371,7 +463,7 @@
 }
 
 .section-title {
-  font-size: 22px;
+  font-size: clamp(18px, 3vw, 22px);
   font-weight: 700;
   color: var(--ooredoo-grey-dark);
   font-family: 'Futura', Arial, sans-serif;
@@ -442,12 +534,14 @@
   transition: transform var(--transition-base);
 }
 
-.quick-action-btn:hover {
+.quick-action-btn:hover,
+.quick-action-btn:focus-visible {
   background: var(--ooredoo-red);
   border-color: var(--ooredoo-red);
   color: var(--ooredoo-white);
   transform: translateY(-4px);
   box-shadow: var(--ooredoo-shadow-red);
+  outline: none;
 }
 
 .quick-action-btn:hover::before {
@@ -462,7 +556,7 @@
   transform: scale(1.15) rotate(5deg);
 }
 
-/* ========== RECENT TICKETS LIST ========== */
+/* ========== TICKET LIST ========== */
 .dashList {
   display: grid;
   gap: 16px;
@@ -493,19 +587,16 @@
   transition: transform var(--transition-base);
 }
 
-.dashListItem:hover {
+.dashListItem:hover,
+.dashListItem:focus-visible {
   border-color: var(--ooredoo-red);
   box-shadow: var(--ooredoo-shadow-red);
   transform: translateY(-2px);
+  outline: none;
 }
 
 .dashListItem:hover::before {
   transform: scaleY(1);
-}
-
-.dashListItem.unread {
-  border-color: var(--ooredoo-red-light);
-  background: rgba(237, 28, 36, 0.02);
 }
 
 .dashListTop {
@@ -536,6 +627,9 @@
 }
 
 .dashMuted {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   color: var(--ooredoo-grey-medium);
   font-family: 'Futura', Arial, sans-serif;
@@ -649,6 +743,7 @@
   font-family: 'Futura', Arial, sans-serif;
   font-weight: 600;
   margin: 0;
+  text-align: center;
 }
 
 .dashboardState {
@@ -696,136 +791,101 @@
   box-shadow: var(--ooredoo-shadow-red);
 }
 
-/* ========== RESPONSIVE - TABLET ========== */
+/* ========== RESPONSIVE DESIGN ========== */
+
+/* Tablet */
 @media (max-width: 1024px) {
-  .dashboard-content {
-    padding: 20px 24px;
-  }
-
   .stats-grid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
   }
-
-  .section-title {
-    font-size: 20px;
-  }
-
+  
   .quick-actions-grid {
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
-/* ========== RESPONSIVE - MOBILE ========== */
+/* Mobile */
 @media (max-width: 768px) {
-  .dashboard-content {
-    padding: 16px;
+  .dashboard-header {
+    flex-direction: column;
+    align-items: stretch;
   }
-
+  
+  .scope-selector {
+    width: 100%;
+  }
+  
+  .scope-btn {
+    flex: 1;
+    justify-content: center;
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+  
+  .current-view {
+    justify-content: center;
+  }
+  
   .stats-grid {
     grid-template-columns: 1fr;
-    gap: 12px;
-    margin-bottom: 24px;
   }
-
+  
   .section-header {
     flex-direction: column;
     align-items: stretch;
   }
-
-  .section-actions {
+  
+  .tabs {
     width: 100%;
   }
-
+  
+  .tab {
+    flex: 1;
+    justify-content: center;
+    font-size: 12px;
+  }
+  
   .filter-btn {
     width: 100%;
     justify-content: center;
   }
-
-  .tabs {
-    width: 100%;
-    justify-content: flex-start;
-  }
-
-  .tab {
-    flex: 1;
-    justify-content: center;
-    padding: 12px 16px;
-    font-size: 13px;
-  }
-
-  .section-title {
-    font-size: 18px;
-  }
-
+  
   .quick-actions-grid {
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
   }
-
-  .quick-action-btn {
-    padding: 20px 16px;
-    font-size: 13px;
-  }
-
-  .dashListItem {
-    padding: 16px;
-  }
-
+  
   .dashListTop {
     flex-direction: column;
     align-items: flex-start;
   }
-
-  .dashListMeta {
-    width: 100%;
-    gap: 8px;
-  }
-
-  .empty-state,
-  .dashboardState {
-    padding: 40px 24px;
-    min-height: 240px;
-  }
 }
 
-/* ========== RESPONSIVE - SMALL MOBILE ========== */
+/* Small Mobile */
 @media (max-width: 480px) {
   .dashboard-content {
     padding: 12px;
   }
-
+  
   .stat-card {
     padding: 16px;
   }
-
+  
   .stat-icon {
     width: 48px;
     height: 48px;
     min-width: 48px;
   }
-
-  .stat-value {
-    font-size: 28px;
-  }
-
+  
   .quick-actions-grid {
     grid-template-columns: 1fr;
-    gap: 12px;
   }
-
-  .dashListItem {
-    padding: 14px;
+  
+  .scope-btn span {
+    display: none;
   }
-
-  .dashListTitle {
-    font-size: 15px;
-  }
-
-  .dashPill {
-    font-size: 11px;
-    padding: 5px 10px;
+  
+  .scope-btn {
+    padding: 10px;
   }
 }
 
@@ -840,11 +900,14 @@
   }
 }
 
+/* Focus Visible */
 .stat-card:focus-visible,
 .tab:focus-visible,
 .quick-action-btn:focus-visible,
 .filter-btn:focus-visible,
-.dashListItem:focus-visible {
+.dashListItem:focus-visible,
+.scope-btn:focus-visible,
+.filter-close:focus-visible {
   outline: 3px solid var(--ooredoo-red);
   outline-offset: 2px;
 }
@@ -853,11 +916,12 @@
 @media print {
   .section-actions,
   .filter-panel,
-  .quick-actions-grid {
+  .quick-actions-grid,
+  .scope-selector {
     display: none !important;
   }
-
-  .stat-card,
+  
+  .stat-card,            
   .dashListItem {
     break-inside: avoid;
     page-break-inside: avoid;

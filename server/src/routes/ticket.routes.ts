@@ -2,48 +2,102 @@
 import { Router } from "express";
 import { z } from "zod";
 import mongoose from "mongoose";
+
 import Ticket from "../models/Ticket.model";
 import Comment from "../models/Comments";
 import Notification from "../models/Notification.model";
+import User from "../models/User.model";
+import Department from "../models/departments.model";
 import { requireAuth, requireRole } from "../middlewares/auth.middleware";
 
 const router = Router();
 router.use(requireAuth);
 
 /* =========================
-   Validation Schemas
-========================= */
-
-const createTicketSchema = z.object({
-  title: z.string().min(3).max(200),
-  description: z.string().min(5).max(5000),
-  category: z.enum(["Technical", "Security", "Feature", "Account", "Bug"]),
-  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
-  status: z.enum(["open", "in-progress", "pending", "resolved", "closed"]).optional(),
-  assignee: z.string().optional(),
-  dueDate: z.string().datetime().optional(),
-  tags: z.array(z.string()).optional(),
-});
-
-const updateTicketSchema = createTicketSchema.partial();
-
-/* =========================
    Helpers
 ========================= */
-
 const isValidObjectId = (id: string) => mongoose.isValidObjectId(id);
 
+function getUserId(req: any): string {
+  return String(
+    req.user?.userId ||
+      req.user?._id ||
+      req.user?.id ||
+      req.user?.uid ||
+      req.user?.sub ||
+      ""
+  );
+}
+
+function getUserRole(req: any): string {
+  return String(req.user?.role || "");
+}
+
+function getUserDeptId(req: any): string {
+  return String(req.user?.departmentId || "");
+}
+
+function normalizeId(val: any): string {
+  return val?._id?.toString?.() ?? val?.toString?.() ?? "";
+}
+
+function getWatcherPermission(ticket: any, uid: string): "read" | "write" | null {
+  const ws = (ticket.watchers || []) as any[];
+  const w = ws.find((x) => normalizeId(x.userId) === String(uid));
+  return w?.permission || null;
+}
+
+/**
+ * ✅ FIX: creator/assignee always can view/write
+ * ✅ FIX: manager access also includes creator/assignee (even if different dept)
+ */
+function canWriteTicket(req: any, ticket: any): boolean {
+  const role = getUserRole(req);
+  const uid = getUserId(req);
+
+  if (role === "admin") return true;
+
+  const assigneeId = normalizeId(ticket.assignee);
+  const createdById = normalizeId(ticket.createdBy);
+
+  // ✅ creator/assignee can always write
+  if (assigneeId && assigneeId === uid) return true;
+  if (createdById && createdById === uid) return true;
+
+  // ✅ managers can write tickets in their department
+  if (role === "manager") {
+    const myDept = getUserDeptId(req);
+    const ticketDept = normalizeId(ticket.departmentId);
+    if (!!myDept && !!ticketDept && String(myDept) === String(ticketDept)) return true;
+  }
+
+  // ✅ watcher write
+  const perm = getWatcherPermission(ticket, uid);
+  return perm === "write";
+}
+
 function ensureTicketAccess(req: any, ticket: any) {
-  // user can only access createdBy/assigned tickets
-  if (req.user.role !== "user") return true;
+  const role = getUserRole(req);
+  const uid = getUserId(req);
 
-  const uid = req.user.userId;
-  const createdById =
-    ticket.createdBy?._id?.toString?.() ?? ticket.createdBy?.toString?.();
-  const assigneeId =
-    ticket.assignee?._id?.toString?.() ?? ticket.assignee?.toString?.();
+  if (role === "admin") return true;
 
-  return createdById === uid || assigneeId === uid;
+  const createdById = normalizeId(ticket.createdBy);
+  const assigneeId = normalizeId(ticket.assignee);
+
+  // ✅ creator/assignee can always view
+  if (createdById === uid || assigneeId === uid) return true;
+
+  // ✅ managers can view tickets in their department
+  if (role === "manager") {
+    const myDept = getUserDeptId(req);
+    const ticketDept = normalizeId(ticket.departmentId);
+    if (!!myDept && !!ticketDept && String(myDept) === String(ticketDept)) return true;
+  }
+
+  // ✅ watchers can view
+  const perm = getWatcherPermission(ticket, uid);
+  return perm === "read" || perm === "write";
 }
 
 async function createNotification(params: {
@@ -65,66 +119,398 @@ async function createNotification(params: {
       isRead: false,
     });
   } catch (err) {
-    // don't break the main request
     console.error("❌ Notification create failed:", err);
   }
 }
 
 /* =========================
+   Validation Schemas
+========================= */
+const createTicketSchema = z.object({
+  title: z.string().min(3).max(200),
+  description: z.string().min(5).max(5000),
+  category: z.enum(["Technical", "Security", "Feature", "Account", "Bug"]),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
+  status: z.enum(["open", "in-progress", "pending", "resolved", "closed"]).optional(),
+  assignee: z.string().optional(), // manager id only on create (optional)
+  dueDate: z.string().datetime().optional(),
+  tags: z.array(z.string()).optional(),
+  departmentId: z.string().min(1),
+});
+
+const updateTicketSchema = createTicketSchema.partial();
+
+/* =========================
    Routes
 ========================= */
 
-// GET /api/tickets
+/**
+ * ✅ Manager Inbox
+ */
+router.get("/inbox", requireRole("manager", "admin"), async (req: any, res) => {
+  const deptId = getUserDeptId(req);
+
+  if (!deptId || !isValidObjectId(deptId)) {
+    return res.status(400).json({ message: "Manager has no departmentId configured" });
+  }
+
+  const tickets = await Ticket.find({ departmentId: deptId })
+    .populate("createdBy", "name email role departmentId department")
+    .populate("assignee", "name email role departmentId department")
+    .populate("departmentId", "name managerId")
+    .populate("watchers.userId", "name email role departmentId department")
+    .sort({ createdAt: -1 });
+
+  // keep unassigned on top
+  const sorted = tickets.sort((a: any, b: any) => {
+    const aUn = !a.assignee;
+    const bUn = !b.assignee;
+    if (aUn === bUn) return 0;
+    return aUn ? -1 : 1;
+  });
+
+  res.json(sorted);
+});
+
+/**
+ * ✅ Assign / Reassign
+ * ✅ AUTO-WATCH:
+ *  - adds assignee as watcher (addedBy = actor)
+ *  - adds actor (manager/admin) as watcher to keep tracking
+ */
+router.patch("/:id/assign", requireRole("manager", "admin"), async (req: any, res) => {
+  const schema = z.object({ assigneeId: z.string().min(1) });
+
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
+
+    const { assigneeId } = schema.parse(req.body);
+    if (!isValidObjectId(assigneeId)) return res.status(400).json({ message: "Invalid assigneeId" });
+
+    const role = getUserRole(req);
+    const managerDeptId = getUserDeptId(req);
+    const actorId = getUserId(req);
+
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    if (role === "manager") {
+      if (!managerDeptId || !isValidObjectId(managerDeptId)) {
+        return res.status(400).json({ message: "Manager has no departmentId configured" });
+      }
+
+      const ticketDept = normalizeId(ticket.departmentId);
+      if (!ticketDept || ticketDept !== String(managerDeptId)) {
+        return res.status(403).json({ message: "Forbidden: Ticket is not in your department" });
+      }
+
+      const assigneeUser = await User.findById(assigneeId).select("name role departmentId");
+      if (!assigneeUser) return res.status(404).json({ message: "Assignee not found" });
+
+      const assigneeDept = normalizeId(assigneeUser.departmentId);
+      if (!assigneeDept || assigneeDept !== String(managerDeptId)) {
+        return res.status(400).json({ message: "Assignee must be in the same department" });
+      }
+
+      if (!["user", "agent"].includes(String(assigneeUser.role))) {
+        return res.status(400).json({ message: "Assignee must be user or agent" });
+      }
+    }
+
+    // ✅ assign
+    ticket.assignee = new mongoose.Types.ObjectId(assigneeId);
+
+    // ✅ auto-watchers
+    const watchers = ((ticket as any).watchers || []) as any[];
+
+    // add assignee watcher
+    const existsAssignee = watchers.some((w: any) => normalizeId(w.userId) === String(assigneeId));
+    if (!existsAssignee) {
+      watchers.push({
+        userId: new mongoose.Types.ObjectId(assigneeId),
+        permission: "read",
+        addedBy: isValidObjectId(actorId) ? new mongoose.Types.ObjectId(actorId) : undefined,
+        addedAt: new Date(),
+      });
+    }
+
+    // add actor watcher (manager/admin) so they keep tracking
+    const existsActor = watchers.some((w: any) => normalizeId(w.userId) === String(actorId));
+    if (!existsActor && isValidObjectId(actorId)) {
+      watchers.push({
+        userId: new mongoose.Types.ObjectId(actorId),
+        permission: "read",
+        addedBy: new mongoose.Types.ObjectId(actorId),
+        addedAt: new Date(),
+      });
+    }
+
+    (ticket as any).watchers = watchers;
+
+    await ticket.save();
+
+    const full = await Ticket.findById(ticket._id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
+
+    await createNotification({
+      userId: assigneeId,
+      type: "ticket_assigned",
+      title: "New Ticket Assigned",
+      message: `You were assigned: "${ticket.title}"`,
+      link: `/tickets/${ticket._id}`,
+    });
+
+    return res.json(full);
+  } catch (err: any) {
+    if (err?.name === "ZodError") return res.status(400).json({ message: err.errors });
+    return res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+/**
+ * ✅ Watchers
+ */
+router.post("/:id/watchers", requireRole("manager", "admin"), async (req: any, res) => {
+  const schema = z.object({
+    userId: z.string().min(1),
+    permission: z.enum(["read", "write"]).default("read"),
+  });
+
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
+
+    const { userId, permission } = schema.parse(req.body);
+    if (!isValidObjectId(userId)) return res.status(400).json({ message: "Invalid userId" });
+
+    const role = getUserRole(req);
+    const myDeptId = getUserDeptId(req);
+
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    if (role === "manager") {
+      const tDept = normalizeId(ticket.departmentId);
+      if (!myDeptId || !tDept || String(tDept) !== String(myDeptId)) {
+        return res.status(403).json({ message: "Forbidden: Ticket is not in your department" });
+      }
+
+      const u = await User.findById(userId).select("departmentId role");
+      if (!u) return res.status(404).json({ message: "User not found" });
+
+      const uDept = normalizeId(u.departmentId);
+      if (!uDept || String(uDept) !== String(myDeptId)) {
+        return res.status(400).json({ message: "Watcher must be in the same department" });
+      }
+    }
+
+    const watchers = ((ticket as any).watchers || []) as any[];
+    const exists = watchers.some((w: any) => normalizeId(w.userId) === String(userId));
+
+    if (!exists) {
+      watchers.push({
+        userId: new mongoose.Types.ObjectId(userId),
+        permission,
+        addedBy: new mongoose.Types.ObjectId(getUserId(req)),
+        addedAt: new Date(),
+      });
+    } else {
+      for (const w of watchers) {
+        if (normalizeId(w.userId) === String(userId)) w.permission = permission;
+      }
+    }
+
+    (ticket as any).watchers = watchers;
+    await ticket.save();
+
+    await createNotification({
+      userId,
+      type: "ticket_updated",
+      title: "You were added as a watcher",
+      message: `You can now watch ticket "${ticket.title}" (${permission === "write" ? "read & write" : "read-only"}).`,
+      link: `/tickets/${ticket._id}`,
+    });
+
+    const full = await Ticket.findById(ticket._id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
+
+    return res.json(full);
+  } catch (err: any) {
+    if (err?.name === "ZodError") return res.status(400).json({ message: err.errors });
+    return res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+router.delete("/:id/watchers/:userId", requireRole("manager", "admin"), async (req: any, res) => {
+  try {
+    const { id, userId } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
+    if (!isValidObjectId(userId)) return res.status(400).json({ message: "Invalid userId" });
+
+    const role = getUserRole(req);
+    const myDeptId = getUserDeptId(req);
+
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    if (role === "manager") {
+      const tDept = normalizeId(ticket.departmentId);
+      if (!myDeptId || !tDept || String(tDept) !== String(myDeptId)) {
+        return res.status(403).json({ message: "Forbidden: Ticket is not in your department" });
+      }
+    }
+
+    const watchers = ((ticket as any).watchers || []) as any[];
+    (ticket as any).watchers = watchers.filter((w: any) => normalizeId(w.userId) !== String(userId));
+    await ticket.save();
+
+    const full = await Ticket.findById(ticket._id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
+
+    return res.json(full);
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+/**
+ * ✅ GET /api/tickets
+ * ✅ Supports view=created|assigned|watching
+ */
 router.get("/", async (req: any, res) => {
-  const { status, priority, category, assignee, createdBy } = req.query;
+  const { status, priority, category, assignee, createdBy, departmentId, view } = req.query;
+
+  const role = getUserRole(req);
+  const uid = getUserId(req);
+  const myDeptId = getUserDeptId(req);
+
+  const viewStr = String(view || "").trim();
+  const needsUid = ["created", "assigned", "watching"].includes(viewStr);
+
+  if (needsUid) {
+    if (!uid || !isValidObjectId(uid)) {
+      return res.status(401).json({ message: "Invalid auth user id (uid missing in token)" });
+    }
+  } else {
+    if (!["admin", "manager"].includes(role)) {
+      if (!uid || !isValidObjectId(uid)) {
+        return res.status(401).json({ message: "Invalid auth user id (uid missing in token)" });
+      }
+    }
+  }
 
   const filter: any = {};
   if (status) filter.status = status;
   if (priority) filter.priority = priority;
   if (category) filter.category = category;
+
   if (assignee) filter.assignee = assignee;
   if (createdBy) filter.createdBy = createdBy;
 
-  if (req.user.role === "user") {
-    filter.$or = [{ createdBy: req.user.userId }, { assignee: req.user.userId }];
+  if (departmentId && isValidObjectId(String(departmentId)) && role === "admin") {
+    filter.departmentId = departmentId;
+  }
+
+  // ✅ view overrides role default scope
+  if (viewStr === "created") {
+    filter.createdBy = uid;
+  } else if (viewStr === "assigned") {
+    filter.assignee = uid;
+  } else if (viewStr === "watching") {
+    filter["watchers.userId"] = uid;
+  } else {
+    if (role === "admin") {
+      // no extra filter
+    } else if (role === "manager") {
+      if (myDeptId) filter.departmentId = myDeptId;
+    } else {
+      filter.$or = [{ createdBy: uid }, { assignee: uid }, { "watchers.userId": uid }];
+    }
   }
 
   const tickets = await Ticket.find(filter)
-    .populate("createdBy", "name email role")
-    .populate("assignee", "name email role")
+    .populate("createdBy", "name email role departmentId department")
+    .populate("assignee", "name email role departmentId department")
+    .populate("departmentId", "name managerId")
+    .populate("watchers.userId", "name email role departmentId department")
     .sort({ createdAt: -1 });
 
   res.json(tickets);
 });
 
-// POST /api/tickets  (manager/admin/agent)
-router.post("/", requireRole("manager", "admin", "agent"), async (req: any, res) => {
+/**
+ * ✅ POST /api/tickets
+ */
+router.post("/", async (req: any, res) => {
   try {
     const data = createTicketSchema.parse(req.body);
 
-    if (data.assignee && !isValidObjectId(data.assignee)) {
-      return res.status(400).json({ message: "Invalid assignee id" });
+    const deptId = String(data.departmentId || "");
+    if (!deptId || !isValidObjectId(deptId)) {
+      return res.status(400).json({ message: "departmentId is required and must be valid" });
+    }
+
+    const dept = await Department.findById(deptId).select("_id name managerId");
+    if (!dept) return res.status(404).json({ message: "Department not found" });
+
+    const creatorId = getUserId(req);
+    if (!creatorId || !isValidObjectId(creatorId)) {
+      return res.status(401).json({ message: "Invalid auth user id (creatorId missing)" });
+    }
+
+    let finalAssignee: mongoose.Types.ObjectId | undefined = undefined;
+
+    if (data.assignee) {
+      if (!isValidObjectId(data.assignee)) return res.status(400).json({ message: "Invalid assignee id" });
+
+      const managerId = dept.managerId?.toString?.() || "";
+      if (!managerId || managerId !== String(data.assignee)) {
+        return res.status(400).json({ message: "Assignee must be the selected department manager" });
+      }
+
+      finalAssignee = new mongoose.Types.ObjectId(String(data.assignee));
+    } else {
+      const managerId = dept.managerId?.toString?.() || "";
+      if (managerId && isValidObjectId(managerId)) {
+        finalAssignee = new mongoose.Types.ObjectId(managerId);
+      }
     }
 
     const ticket = await Ticket.create({
-      ...data,
+      title: data.title.trim(),
+      description: data.description.trim(),
+      category: data.category,
       priority: data.priority || "medium",
       status: data.status || "open",
-      createdBy: req.user.userId,
+      tags: data.tags || [],
+
+      departmentId: new mongoose.Types.ObjectId(deptId),
+      createdBy: new mongoose.Types.ObjectId(creatorId),
+      assignee: finalAssignee,
+
+      watchers: [],
       dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
     });
 
     const full = await Ticket.findById(ticket._id)
-      .populate("createdBy", "name email role")
-      .populate("assignee", "name email role");
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
 
-    // ✅ FIX: null guard
-    if (!full) {
-      return res.status(500).json({ message: "Failed to load created ticket" });
-    }
+    if (!full) return res.status(500).json({ message: "Failed to load created ticket" });
 
-    // ✅ Notification: when ticket assigned on create
-    const assigneeId = (full as any).assignee?._id?.toString?.();
+    const assigneeId = (full as any).assignee?._id?.toString?.() || "";
     if (assigneeId) {
       await createNotification({
         userId: assigneeId,
@@ -142,31 +528,28 @@ router.post("/", requireRole("manager", "admin", "agent"), async (req: any, res)
   }
 });
 
-// GET /api/tickets/:id  (returns { ticket, comments })
 router.get("/:id", async (req: any, res) => {
   const { id } = req.params;
   if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
 
   const ticket = await Ticket.findById(id)
-    .populate("createdBy", "name email role")
-    .populate("assignee", "name email role");
+    .populate("createdBy", "name email role departmentId department")
+    .populate("assignee", "name email role departmentId department")
+    .populate("departmentId", "name managerId")
+    .populate("watchers.userId", "name email role departmentId department");
 
   if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-
   if (!ensureTicketAccess(req, ticket)) return res.status(403).json({ message: "Forbidden" });
 
   const comments = await Comment.find({ ticketId: ticket._id, deletedAt: null })
-    .populate("userId", "name email role")
+    .populate("userId", "name email role departmentId department")
     .sort({ createdAt: 1 });
 
   res.json({ ticket, comments });
 });
 
-// ✅ POST /api/tickets/:id/comments  (creates comment + notifications)
 router.post("/:id/comments", async (req: any, res) => {
-  const schema = z.object({
-    text: z.string().min(1).max(5000),
-  });
+  const schema = z.object({ text: z.string().min(1).max(5000) });
 
   try {
     const { id } = req.params;
@@ -174,32 +557,38 @@ router.post("/:id/comments", async (req: any, res) => {
 
     const { text } = schema.parse(req.body);
 
-    // load ticket to know creator/assignee
     const ticket = await Ticket.findById(id)
-      .populate("createdBy", "name email role")
-      .populate("assignee", "name email role");
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
 
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
     if (!ensureTicketAccess(req, ticket)) return res.status(403).json({ message: "Forbidden" });
 
-    // create comment
+    if (!canWriteTicket(req, ticket)) {
+      return res.status(403).json({ message: "Forbidden: read-only access" });
+    }
+
     const created = await Comment.create({
       ticketId: ticket._id,
-      userId: req.user.userId,
+      userId: getUserId(req),
       content: text.trim(),
       attachments: [],
       deletedAt: null,
     });
 
-    const fullComment = await Comment.findById(created._id).populate("userId", "name email role");
+    const fullComment = await Comment.findById(created._id).populate(
+      "userId",
+      "name email role departmentId department"
+    );
 
-    // ✅ Notification: notify assignee + creator (except commenter)
-    const commenterId = String(req.user.userId);
+    const commenterId = getUserId(req);
+    const assigneeId = normalizeId((ticket as any).assignee);
+    const createdById = normalizeId((ticket as any).createdBy);
 
-    const assigneeId = (ticket as any).assignee?._id?.toString?.() || "";
-    const createdById = (ticket as any).createdBy?._id?.toString?.() || "";
-
-    const targets = Array.from(new Set([assigneeId, createdById].filter(Boolean))).filter(
+    const watcherIds = ((ticket as any).watchers || []).map((w: any) => normalizeId(w.userId));
+    const targets = Array.from(new Set([assigneeId, createdById, ...watcherIds].filter(Boolean))).filter(
       (uid) => uid !== commenterId
     );
 
@@ -224,7 +613,6 @@ router.post("/:id/comments", async (req: any, res) => {
   }
 });
 
-// PUT /api/tickets/:id  (update ticket + notify if assignee changed)
 router.put("/:id", async (req: any, res) => {
   try {
     const { id } = req.params;
@@ -232,38 +620,36 @@ router.put("/:id", async (req: any, res) => {
 
     const data = updateTicketSchema.parse(req.body);
 
-    if (data.assignee && !isValidObjectId(String(data.assignee))) {
-      return res.status(400).json({ message: "Invalid assignee id" });
-    }
-
     const before = await Ticket.findById(id);
     if (!before) return res.status(404).json({ message: "Ticket not found" });
-
     if (!ensureTicketAccess(req, before)) return res.status(403).json({ message: "Forbidden" });
 
-    const beforeAssignee = before.assignee?.toString?.() || "";
+    const role = getUserRole(req);
+    const uid = getUserId(req);
+    const assigneeId = normalizeId(before.assignee);
+    const createdById = normalizeId(before.createdBy);
+
+    const canEdit =
+      role === "admin" ||
+      (role === "manager" && normalizeId(before.departmentId) === getUserDeptId(req)) ||
+      uid === assigneeId ||
+      uid === createdById;
+
+    if (!canEdit) {
+      return res.status(403).json({ message: "Forbidden: you cannot edit ticket fields" });
+    }
 
     const updated = await Ticket.findByIdAndUpdate(
       id,
       { ...data, dueDate: data.dueDate ? new Date(data.dueDate) : undefined },
       { new: true }
     )
-      .populate("createdBy", "name email role")
-      .populate("assignee", "name email role");
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
 
     if (!updated) return res.status(404).json({ message: "Ticket not found" });
-
-    const afterAssignee = (updated as any).assignee?._id?.toString?.() || "";
-
-    if (afterAssignee && afterAssignee !== beforeAssignee) {
-      await createNotification({
-        userId: afterAssignee,
-        type: "ticket_assigned",
-        title: "Ticket Assigned To You",
-        message: `Ticket "${updated.title}" has been assigned to you.`,
-        link: `/tickets/${updated._id}`,
-      });
-    }
 
     res.json(updated);
   } catch (err: any) {
@@ -272,7 +658,6 @@ router.put("/:id", async (req: any, res) => {
   }
 });
 
-// PATCH /api/tickets/:id/status
 router.patch("/:id/status", async (req: any, res) => {
   const schema = z.object({
     status: z.enum(["open", "in-progress", "pending", "resolved", "closed"]),
@@ -284,23 +669,57 @@ router.patch("/:id/status", async (req: any, res) => {
 
     const { status } = schema.parse(req.body);
 
-    const ticket = await Ticket.findByIdAndUpdate(id, { status }, { new: true })
-      .populate("createdBy", "name email role")
-      .populate("assignee", "name email role");
+    const ticket = await Ticket.findById(id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
 
     if (!ticket) return res.status(404).json({ message: "Ticket not found" });
-
     if (!ensureTicketAccess(req, ticket)) return res.status(403).json({ message: "Forbidden" });
 
-    res.json(ticket);
+    if (!canWriteTicket(req, ticket)) {
+      return res.status(403).json({ message: "Forbidden: read-only access" });
+    }
+
+    ticket.status = status;
+    await ticket.save();
+
+    const changerId = getUserId(req);
+    const assigneeId = normalizeId((ticket as any).assignee);
+    const createdById = normalizeId((ticket as any).createdBy);
+    const watcherIds = ((ticket as any).watchers || []).map((w: any) => normalizeId(w.userId));
+
+    const targets = Array.from(new Set([assigneeId, createdById, ...watcherIds].filter(Boolean))).filter(
+      (uid) => uid !== changerId
+    );
+
+    await Promise.all(
+      targets.map((uid) =>
+        createNotification({
+          userId: uid,
+          type: "ticket_updated",
+          title: "Ticket Status Updated",
+          message: `Ticket "${ticket.title}" status changed to "${status}".`,
+          link: `/tickets/${ticket._id}`,
+        })
+      )
+    );
+
+    const full = await Ticket.findById(ticket._id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
+
+    res.json(full);
   } catch (err: any) {
     if (err?.name === "ZodError") return res.status(400).json({ message: err.errors });
     return res.status(500).json({ message: err.message || "Server error" });
   }
 });
 
-// DELETE /api/tickets/:id
-router.delete("/:id", requireRole("admin", "manager"), async (req, res) => {
+router.delete("/:id", requireRole("admin", "manager"), async (req: any, res) => {
   const deleted = await Ticket.findByIdAndDelete(req.params.id);
   if (!deleted) return res.status(404).json({ message: "Ticket not found" });
   res.json({ message: "Ticket deleted" });

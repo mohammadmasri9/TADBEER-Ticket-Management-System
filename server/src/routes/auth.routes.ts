@@ -3,6 +3,7 @@ import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose";
 import User from "../models/User.model";
 
 const router = Router();
@@ -11,8 +12,15 @@ const registerSchema = z.object({
   name: z.string().min(2, "Name is too short"),
   email: z.string().email("Invalid email"),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  role: z.enum(["user", "agent", "admin"]).optional(),
+
+  // ✅ include manager (you use it everywhere else)
+  role: z.enum(["user", "agent", "manager", "admin"]).optional(),
+
+  // Legacy / display only
   department: z.string().optional(),
+
+  // ✅ preferred
+  departmentId: z.string().optional(),
 });
 
 const loginSchema = z.object({
@@ -26,6 +34,27 @@ function signToken(payload: { userId: string; role: string }) {
   return jwt.sign(payload, secret, { expiresIn: "7d" });
 }
 
+function isValidObjectId(id: any) {
+  return typeof id === "string" && mongoose.isValidObjectId(id);
+}
+
+function shapeUser(user: any) {
+  return {
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+
+    // ✅ include both (frontend uses departmentId mainly)
+    department: user.department || undefined,
+    departmentId: user.departmentId ? user.departmentId.toString() : undefined,
+
+    status: user.status,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+  };
+}
+
 // POST /api/auth/register
 router.post("/register", async (req, res) => {
   try {
@@ -36,12 +65,18 @@ router.post("/register", async (req, res) => {
 
     const passwordHash = await bcrypt.hash(data.password, 10);
 
+    const departmentId =
+      data.departmentId && isValidObjectId(data.departmentId)
+        ? new mongoose.Types.ObjectId(data.departmentId)
+        : undefined;
+
     const user = await User.create({
-      name: data.name,
+      name: data.name.trim(),
       email: data.email.toLowerCase(),
       passwordHash,
       role: data.role || "user",
       department: data.department,
+      departmentId,
       status: "available",
     });
 
@@ -49,14 +84,7 @@ router.post("/register", async (req, res) => {
 
     return res.status(201).json({
       token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        department: user.department,
-        status: user.status,
-      },
+      user: shapeUser(user),
     });
   } catch (err: any) {
     if (err?.name === "ZodError") return res.status(400).json({ message: err.errors });
@@ -79,14 +107,7 @@ router.post("/login", async (req, res) => {
 
     return res.json({
       token,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        department: user.department,
-        status: user.status,
-      },
+      user: shapeUser(user),
     });
   } catch (err: any) {
     if (err?.name === "ZodError") return res.status(400).json({ message: err.errors });
@@ -106,10 +127,10 @@ router.get("/me", async (req, res) => {
 
     const decoded = jwt.verify(token, secret) as { userId: string; role: string };
 
-    const user = await User.findById(decoded.userId).select("-passwordHash");
+    const user = await User.findById(decoded.userId);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    return res.json({ user });
+    return res.json({ user: shapeUser(user) });
   } catch {
     return res.status(401).json({ message: "Invalid token" });
   }

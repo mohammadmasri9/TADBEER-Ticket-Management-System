@@ -17,6 +17,8 @@ import AuthLayout from "../src/layouts/AuthLayout";
 import DashboardLayout from "../src/layouts/DashboardLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import Notifications from "../src/pages/Notifications";
+import SLAPage from "../src/pages/SLAPage";
+
 
 
 import "./style/Dashboard.css";
@@ -51,6 +53,8 @@ export default function AppRoutes() {
         <Route path="admin/users" element={<ManageUsers />} />
         <Route path="admin/adduser" element={<AddUser />} />
         <Route path="manager/reports" element={<Reports />} />
+        <Route path="admin/sla" element={<SLAPage />} />
+
 
         {/* profile */}
         <Route path="profile/:id" element={<Profile />} />

@@ -9,7 +9,6 @@ import {
   Clock,
   AlertCircle,
   CheckCircle,
-  User,
   Tag,
   MessageSquare,
   Paperclip,
@@ -34,16 +33,17 @@ import {
   Upload,
   FileText,
   Check,
+  Building,
+  User,
 } from "lucide-react";
 
 // ✅ API
 import { createTicket, TicketCategory, TicketPriority } from "../../api/tickets";
-import { getUsers, UserDTO } from "../../api/users";
+import { getDepartments, DepartmentDTO } from "../../api/departments";
 
 // ============================================================================
-// TYPE DEFINITIONS
+// TYPES
 // ============================================================================
-
 interface CategoryOption {
   value: TicketCategory;
   label: string;
@@ -64,7 +64,7 @@ interface FormData {
   description: string;
   priority: TicketPriority;
   category: "" | TicketCategory;
-  assigneeId: string; // user _id
+  departmentId: string;
   dueDate: string;
   attachments: File[];
 }
@@ -76,7 +76,6 @@ interface FormErrors {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-
 const CATEGORIES: CategoryOption[] = [
   {
     value: "Technical",
@@ -146,29 +145,42 @@ const VALIDATION_RULES = {
   TITLE_MAX_LENGTH: 200,
   DESCRIPTION_MIN_LENGTH: 20,
   DESCRIPTION_MAX_LENGTH: 5000,
-  MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
+  MAX_FILE_SIZE: 10 * 1024 * 1024,
 };
 
 const DRAFT_STORAGE_KEY = "draftTicket";
 
 // ============================================================================
-// MAIN COMPONENT
+// HELPERS
 // ============================================================================
+function getManagerPreview(dep?: DepartmentDTO | null) {
+  const raw: any = dep?.managerId;
+  if (!raw) return null;
 
+  // managerId could be string or populated object
+  if (typeof raw === "string") return { _id: raw, name: "", email: "", role: "" };
+
+  return {
+    _id: raw?._id || "",
+    name: raw?.name || "",
+    email: raw?.email || "",
+    role: raw?.role || "",
+  };
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
 const CreateTicket: React.FC = () => {
   const navigate = useNavigate();
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-
-  // ========================================================================
-  // STATE
-  // ========================================================================
 
   const [formData, setFormData] = useState<FormData>({
     title: "",
     description: "",
     priority: "medium",
     category: "",
-    assigneeId: "",
+    departmentId: "",
     dueDate: "",
     attachments: [],
   });
@@ -178,42 +190,36 @@ const CreateTicket: React.FC = () => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [apiError, setApiError] = useState("");
+
   const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "idle">("idle");
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
 
-  // Users for assignee dropdown
-  const [users, setUsers] = useState<UserDTO[]>([]);
-  const [usersLoading, setUsersLoading] = useState(false);
-  const [usersError, setUsersError] = useState("");
-  const [assigneeSearch, setAssigneeSearch] = useState("");
+  // Departments
+  const [departments, setDepartments] = useState<DepartmentDTO[]>([]);
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [deptError, setDeptError] = useState("");
 
-  // ========================================================================
-  // EFFECTS
-  // ========================================================================
-
-  // Fetch users for assignment
+  // =========================
+  // Fetch departments (works for ALL roles)
+  // =========================
   useEffect(() => {
     let mounted = true;
 
     (async () => {
       try {
-        setUsersLoading(true);
-        setUsersError("");
-
-        // If your backend supports filters, you can pass params:
-        // const data = await getUsers({ status: "available" });
-        const data = await getUsers();
-
+        setDeptLoading(true);
+        setDeptError("");
+        const data = await getDepartments();
         if (!mounted) return;
-        setUsers(Array.isArray(data) ? data : []);
+        setDepartments(Array.isArray(data) ? data : []);
       } catch (e: any) {
         if (!mounted) return;
-        setUsersError(e?.response?.data?.message || e?.message || "Failed to load users");
-        setUsers([]);
+        setDeptError(e?.response?.data?.message || e?.message || "Failed to load departments");
+        setDepartments([]);
       } finally {
         if (!mounted) return;
-        setUsersLoading(false);
+        setDeptLoading(false);
       }
     })();
 
@@ -222,14 +228,16 @@ const CreateTicket: React.FC = () => {
     };
   }, []);
 
-  // Auto-save draft
+  // =========================
+  // Draft Auto-save
+  // =========================
   useEffect(() => {
     const timer = setTimeout(() => {
       if (
         formData.title ||
         formData.description ||
         formData.category ||
-        formData.assigneeId ||
+        formData.departmentId ||
         formData.dueDate
       ) {
         setAutoSaveStatus("saving");
@@ -237,106 +245,86 @@ const CreateTicket: React.FC = () => {
           localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
           setAutoSaveStatus("saved");
           setTimeout(() => setAutoSaveStatus("idle"), 1500);
-        }, 400);
+        }, 350);
       }
-    }, 1500);
+    }, 1200);
 
     return () => clearTimeout(timer);
   }, [formData]);
 
-  // Load draft banner
+  // =========================
+  // Draft banner on mount
+  // =========================
   useEffect(() => {
     const draft = localStorage.getItem(DRAFT_STORAGE_KEY);
     if (draft) {
-      const parsed = JSON.parse(draft);
-      if (parsed?.title || parsed?.description || parsed?.category) {
-        setHasDraft(true);
-        setShowDraftBanner(true);
+      try {
+        const parsed = JSON.parse(draft);
+        if (parsed?.title || parsed?.description || parsed?.category || parsed?.departmentId) {
+          setHasDraft(true);
+          setShowDraftBanner(true);
+        }
+      } catch {
+        // ignore
       }
     }
   }, []);
 
-  // ========================================================================
-  // MEMO
-  // ========================================================================
+  // =========================
+  // Selected Department + Manager Preview
+  // =========================
+  const selectedDepartment = useMemo(() => {
+    return departments.find((d) => d._id === formData.departmentId) || null;
+  }, [departments, formData.departmentId]);
 
-  const filteredUsers = useMemo(() => {
-    const q = assigneeSearch.trim().toLowerCase();
-    if (!q) return users;
+  const managerPreview = useMemo(() => getManagerPreview(selectedDepartment), [selectedDepartment]);
 
-    return users.filter((u) => {
-      const name = (u.name || "").toLowerCase();
-      const email = (u.email || "").toLowerCase();
-      const dept = (u.department || "").toLowerCase();
-      const role = (u.role || "").toLowerCase();
-      return name.includes(q) || email.includes(q) || dept.includes(q) || role.includes(q);
-    });
-  }, [users, assigneeSearch]);
+  // =========================
+  // Validation
+  // =========================
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {};
+
+    if (!formData.title.trim()) newErrors.title = "Title is required";
+    else if (formData.title.trim().length < VALIDATION_RULES.TITLE_MIN_LENGTH) {
+      newErrors.title = `Title must be at least ${VALIDATION_RULES.TITLE_MIN_LENGTH} characters`;
+    }
+
+    if (!formData.description.trim()) newErrors.description = "Description is required";
+    else if (formData.description.trim().length < VALIDATION_RULES.DESCRIPTION_MIN_LENGTH) {
+      newErrors.description = `Description must be at least ${VALIDATION_RULES.DESCRIPTION_MIN_LENGTH} characters`;
+    }
+
+    if (!formData.category) newErrors.category = "Please select a category";
+    if (!formData.departmentId) newErrors.departmentId = "Please select a department";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const isFormValid = useMemo(() => {
     return (
       formData.title.trim().length >= VALIDATION_RULES.TITLE_MIN_LENGTH &&
       formData.description.trim().length >= VALIDATION_RULES.DESCRIPTION_MIN_LENGTH &&
       formData.category !== "" &&
+      formData.departmentId !== "" &&
       Object.keys(errors).length === 0
     );
-  }, [formData.title, formData.description, formData.category, errors]);
+  }, [formData.title, formData.description, formData.category, formData.departmentId, errors]);
 
-  // ========================================================================
-  // VALIDATION
-  // ========================================================================
-
-  const validateForm = (): boolean => {
-    const newErrors: FormErrors = {};
-
-    if (!formData.title.trim()) {
-      newErrors.title = "Title is required";
-    } else if (formData.title.trim().length < VALIDATION_RULES.TITLE_MIN_LENGTH) {
-      newErrors.title = `Title must be at least ${VALIDATION_RULES.TITLE_MIN_LENGTH} characters`;
-    }
-
-    if (!formData.description.trim()) {
-      newErrors.description = "Description is required";
-    } else if (formData.description.trim().length < VALIDATION_RULES.DESCRIPTION_MIN_LENGTH) {
-      newErrors.description = `Description must be at least ${VALIDATION_RULES.DESCRIPTION_MIN_LENGTH} characters`;
-    }
-
-    if (!formData.category) {
-      newErrors.category = "Please select a category";
-    }
-
-    // Assignee must exist in users list (if selected)
-    if (formData.assigneeId) {
-      const exists = users.some((u) => u._id === formData.assigneeId);
-      if (!exists) newErrors.assigneeId = "Selected assignee is invalid";
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  // ========================================================================
-  // HANDLERS
-  // ========================================================================
-
-  const handleCancel = () => {
-    navigate("/tickets");
-  };
+  // =========================
+  // Handlers
+  // =========================
+  const handleCancel = () => navigate("/tickets");
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value } = e.target;
 
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
 
-    if (errors[name]) {
-      setErrors((prev) => ({ ...prev, [name]: "" }));
-    }
-
+    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
     if (apiError) setApiError("");
   };
 
@@ -350,7 +338,6 @@ const CreateTicket: React.FC = () => {
     e.preventDefault();
     setIsDragOver(true);
   };
-
   const handleDragLeave = () => setIsDragOver(false);
 
   const handleDrop = (e: React.DragEvent) => {
@@ -377,7 +364,11 @@ const CreateTicket: React.FC = () => {
   const handleRestoreDraft = () => {
     const draft = localStorage.getItem(DRAFT_STORAGE_KEY);
     if (draft) {
-      setFormData(JSON.parse(draft));
+      try {
+        setFormData(JSON.parse(draft));
+      } catch {
+        // ignore
+      }
     }
     setShowDraftBanner(false);
   };
@@ -401,9 +392,9 @@ const CreateTicket: React.FC = () => {
         description: formData.description.trim(),
         category: formData.category,
         priority: formData.priority,
+        departmentId: formData.departmentId,
       };
 
-      if (formData.assigneeId.trim()) payload.assignee = formData.assigneeId.trim();
       if (formData.dueDate) payload.dueDate = new Date(formData.dueDate).toISOString();
 
       await createTicket(payload);
@@ -413,18 +404,22 @@ const CreateTicket: React.FC = () => {
 
       setTimeout(() => {
         navigate("/tickets", { state: { message: "Ticket created successfully!" } });
-      }, 1200);
+      }, 1100);
     } catch (err: any) {
-      setApiError(err?.response?.data?.message || err?.message || "Failed to create ticket");
+      // ✅ FIX: render Zod errors nicely
+      const msg = err?.response?.data?.message;
+      if (Array.isArray(msg)) {
+        const nice = msg.map((e: any) => e?.message || JSON.stringify(e)).join(" • ");
+        setApiError(nice || "Validation error");
+      } else {
+        setApiError(msg || err?.message || "Failed to create ticket");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  // ========================================================================
-  // UTILS
-  // ========================================================================
-
+  // UI helpers
   const getFileIcon = (filename: string) => {
     const ext = filename.split(".").pop()?.toLowerCase();
     if (["jpg", "jpeg", "png", "gif"].includes(ext || "")) return <Image size={16} />;
@@ -447,14 +442,9 @@ const CreateTicket: React.FC = () => {
     return classes[priority] || "";
   };
 
-  // ========================================================================
-  // RENDER
-  // ========================================================================
-
   return (
     <div className="create-ticket-page">
       <div className="create-ticket-content">
-        {/* Page Header */}
         <div className="page-header">
           <div className="header-top">
             <button className="back-btn" onClick={handleCancel} type="button">
@@ -486,12 +476,13 @@ const CreateTicket: React.FC = () => {
             </div>
             <div className="header-text">
               <h1 className="page-title">Create New Ticket</h1>
-              <p className="page-subtitle">Submit a detailed ticket to get help from our support team</p>
+              <p className="page-subtitle">
+                Select a department — the ticket will go to the department manager automatically.
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Success Banner */}
         {success && (
           <div className="success-banner">
             <CheckCircle size={24} />
@@ -502,7 +493,6 @@ const CreateTicket: React.FC = () => {
           </div>
         )}
 
-        {/* Draft Restore Banner */}
         {showDraftBanner && hasDraft && (
           <div className="draft-restore-banner">
             <div className="draft-restore-content">
@@ -523,7 +513,6 @@ const CreateTicket: React.FC = () => {
           </div>
         )}
 
-        {/* API Error */}
         {apiError && (
           <div className="error-banner">
             <AlertCircle size={20} />
@@ -533,9 +522,8 @@ const CreateTicket: React.FC = () => {
           </div>
         )}
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="create-ticket-form">
-          {/* Basic Information */}
+          {/* Basic Info */}
           <div className="form-section">
             <div className="section-header">
               <Tag size={20} />
@@ -574,6 +562,71 @@ const CreateTicket: React.FC = () => {
                 )}
               </div>
 
+              {/* Department */}
+              <div className="form-group full-width">
+                <label htmlFor="departmentId">
+                  <Building size={16} /> Department <span className="required">*</span>
+                </label>
+
+                <select
+                  id="departmentId"
+                  name="departmentId"
+                  value={formData.departmentId}
+                  onChange={handleChange}
+                  className={errors.departmentId ? "error" : ""}
+                  disabled={deptLoading}
+                >
+                  <option value="">{deptLoading ? "Loading departments..." : "Select Department"}</option>
+                  {departments.map((d) => (
+                    <option key={d._id} value={d._id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Manager preview */}
+                {formData.departmentId && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 13,
+                      opacity: 0.95,
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <User size={16} />
+                    <strong>Department Manager:</strong>{" "}
+                    {managerPreview && (managerPreview.name || managerPreview.email) ? (
+                      <span>
+                        {managerPreview.name || "Manager"}
+                        {managerPreview.email ? ` (${managerPreview.email})` : ""}
+                      </span>
+                    ) : managerPreview && managerPreview._id ? (
+                      <span>Manager ID: {managerPreview._id}</span>
+                    ) : (
+                      <span style={{ color: "#b91c1c" }}>No manager assigned to this department</span>
+                    )}
+                  </div>
+                )}
+
+                {deptError && (
+                  <span className="error-message">
+                    <AlertCircle size={14} />
+                    {deptError}
+                  </span>
+                )}
+
+                {errors.departmentId && (
+                  <span className="error-message">
+                    <AlertCircle size={14} />
+                    {errors.departmentId}
+                  </span>
+                )}
+              </div>
+
+              {/* Category */}
               <div className="form-group full-width">
                 <label htmlFor="category">
                   <Tag size={16} />
@@ -615,11 +668,11 @@ const CreateTicket: React.FC = () => {
             </div>
           </div>
 
-          {/* Priority & Assignment */}
+          {/* Priority & Due date */}
           <div className="form-section">
             <div className="section-header">
               <TrendingUp size={20} />
-              <h2>Priority & Assignment</h2>
+              <h2>Priority & Schedule</h2>
             </div>
 
             <div className="section-content">
@@ -647,87 +700,20 @@ const CreateTicket: React.FC = () => {
                   )}
                 </div>
 
-                {/* ✅ Assign To dropdown */}
                 <div className="form-group">
-                  <label htmlFor="assigneeId">
-                    <User size={16} />
-                    Assign To
+                  <label htmlFor="dueDate">
+                    <Calendar size={16} />
+                    Due Date
                   </label>
-
                   <input
-                    type="text"
-                    value={assigneeSearch}
-                    onChange={(e) => setAssigneeSearch(e.target.value)}
-                    placeholder="Search by name / email / department / role..."
-                    style={{ marginBottom: 8 }}
-                  />
-
-                  <select
-                    id="assigneeId"
-                    name="assigneeId"
-                    value={formData.assigneeId}
+                    type="date"
+                    id="dueDate"
+                    name="dueDate"
+                    value={formData.dueDate}
                     onChange={handleChange}
-                    className={errors.assigneeId ? "error" : ""}
-                    disabled={usersLoading}
-                  >
-                    <option value="">
-                      {usersLoading ? "Loading users..." : "Unassigned (optional)"}
-                    </option>
-
-                    {filteredUsers.map((u) => (
-                      <option key={u._id} value={u._id}>
-                        {u.name} — {u.email}
-                        {u.department ? ` — ${u.department}` : ""}
-                        {u.role ? ` (${u.role})` : ""}
-                        {u.status ? ` • ${u.status}` : ""}
-                      </option>
-                    ))}
-                  </select>
-
-                  {usersError && (
-                    <span className="error-message">
-                      <AlertCircle size={14} />
-                      {usersError}
-                    </span>
-                  )}
-
-                  {errors.assigneeId && (
-                    <span className="error-message">
-                      <AlertCircle size={14} />
-                      {errors.assigneeId}
-                    </span>
-                  )}
-
-                  {!!formData.assigneeId && (
-                    <button
-                      type="button"
-                      className="btn-draft"
-                      style={{ marginTop: 8 }}
-                      onClick={() => {
-                        setFormData((prev) => ({ ...prev, assigneeId: "" }));
-                        setAssigneeSearch("");
-                        if (errors.assigneeId) setErrors((prev) => ({ ...prev, assigneeId: "" }));
-                      }}
-                    >
-                      Clear
-                    </button>
-                  )}
+                    min={new Date().toISOString().split("T")[0]}
+                  />
                 </div>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="dueDate">
-                  <Calendar size={16} />
-                  Due Date
-                </label>
-                <input
-                  type="date"
-                  id="dueDate"
-                  name="dueDate"
-                  value={formData.dueDate}
-                  onChange={handleChange}
-                  min={new Date().toISOString().split("T")[0]}
-                />
               </div>
             </div>
           </div>
@@ -783,7 +769,11 @@ const CreateTicket: React.FC = () => {
                     ref={descriptionRef}
                     id="description"
                     name="description"
-                    placeholder="Provide detailed information:&#10;• What happened?&#10;• Steps to reproduce&#10;• Expected vs actual behavior&#10;• Any error messages"
+                    placeholder="Provide detailed information:
+• What happened?
+• Steps to reproduce
+• Expected vs actual behavior
+• Any error messages"
                     value={formData.description}
                     onChange={handleChange}
                     rows={10}
@@ -902,7 +892,12 @@ const CreateTicket: React.FC = () => {
                 type="button"
                 className="btn-draft"
                 onClick={handleSaveDraft}
-                disabled={!formData.title && !formData.description && !formData.category}
+                disabled={
+                  !formData.title &&
+                  !formData.description &&
+                  !formData.category &&
+                  !formData.departmentId
+                }
               >
                 <Save size={18} />
                 Save Draft
