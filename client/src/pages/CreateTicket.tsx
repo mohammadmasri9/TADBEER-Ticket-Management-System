@@ -35,11 +35,16 @@ import {
   Check,
   Building,
   User,
+  Wand2,
+  Copy,
 } from "lucide-react";
 
 // ✅ API
 import { createTicket, TicketCategory, TicketPriority } from "../../api/tickets";
 import { getDepartments, DepartmentDTO } from "../../api/departments";
+
+// ✅ AI API (make sure you created: client/api/ai.ts)
+import { suggestTicketAI } from "../../api/ai";
 
 // ============================================================================
 // TYPES
@@ -72,6 +77,16 @@ interface FormData {
 interface FormErrors {
   [key: string]: string;
 }
+
+type AutoSaveStatus = "saved" | "saving" | "idle";
+
+type AISuggestState = {
+  shortSummary: string;
+  steps: string[];
+  clarifyingQuestion?: string;
+  priority: TicketPriority;
+  category: TicketCategory;
+};
 
 // ============================================================================
 // CONSTANTS
@@ -168,6 +183,11 @@ function getManagerPreview(dep?: DepartmentDTO | null) {
   };
 }
 
+function joinStepsAsText(steps: string[]) {
+  if (!steps?.length) return "";
+  return steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -191,7 +211,7 @@ const CreateTicket: React.FC = () => {
   const [errors, setErrors] = useState<FormErrors>({});
   const [apiError, setApiError] = useState("");
 
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"saved" | "saving" | "idle">("idle");
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("idle");
   const [showDraftBanner, setShowDraftBanner] = useState(false);
   const [hasDraft, setHasDraft] = useState(false);
 
@@ -199,6 +219,13 @@ const CreateTicket: React.FC = () => {
   const [departments, setDepartments] = useState<DepartmentDTO[]>([]);
   const [deptLoading, setDeptLoading] = useState(false);
   const [deptError, setDeptError] = useState("");
+
+  // ✅ AI Suggest
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiData, setAiData] = useState<AISuggestState | null>(null);
+  const [aiStepsText, setAiStepsText] = useState("");
+  const [aiApplied, setAiApplied] = useState(false);
 
   // =========================
   // Fetch departments (works for ALL roles)
@@ -302,13 +329,16 @@ const CreateTicket: React.FC = () => {
     return Object.keys(newErrors).length === 0;
   };
 
+  // ✅ FIX: errors may keep keys with empty strings. We consider “noRealErrors” by values, not by keys.
   const isFormValid = useMemo(() => {
+    const noRealErrors = Object.values(errors).every((v) => !v);
+
     return (
       formData.title.trim().length >= VALIDATION_RULES.TITLE_MIN_LENGTH &&
       formData.description.trim().length >= VALIDATION_RULES.DESCRIPTION_MIN_LENGTH &&
       formData.category !== "" &&
       formData.departmentId !== "" &&
-      Object.keys(errors).length === 0
+      noRealErrors
     );
   }, [formData.title, formData.description, formData.category, formData.departmentId, errors]);
 
@@ -324,8 +354,21 @@ const CreateTicket: React.FC = () => {
 
     setFormData((prev) => ({ ...prev, [name]: value }));
 
-    if (errors[name]) setErrors((prev) => ({ ...prev, [name]: "" }));
+    // ✅ FIX: remove cleared error key (not just set to "")
+    if (errors[name]) {
+      setErrors((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+
     if (apiError) setApiError("");
+
+    // AI state resets if user changes main content
+    if (name === "title" || name === "description") {
+      setAiApplied(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -379,6 +422,90 @@ const CreateTicket: React.FC = () => {
     setHasDraft(false);
   };
 
+  // =========================
+  // ✅ AI Suggest Handler
+  // =========================
+  const handleAISuggest = async () => {
+    setAiError("");
+    setApiError("");
+
+    const titleOk = formData.title.trim().length >= VALIDATION_RULES.TITLE_MIN_LENGTH;
+    const descOk = formData.description.trim().length >= VALIDATION_RULES.DESCRIPTION_MIN_LENGTH;
+
+    if (!titleOk || !descOk) {
+      setAiError(
+        `Please enter a valid title (min ${VALIDATION_RULES.TITLE_MIN_LENGTH}) and description (min ${VALIDATION_RULES.DESCRIPTION_MIN_LENGTH}) first.`
+      );
+      return;
+    }
+
+    setAiLoading(true);
+    try {
+      const res = await suggestTicketAI({
+        title: formData.title.trim(),
+        description: formData.description.trim(),
+      });
+
+      const next: AISuggestState = {
+        priority: res.priority,
+        category: res.category,
+        shortSummary: res.shortSummary,
+        steps: Array.isArray(res.steps) ? res.steps : [],
+        clarifyingQuestion: res.clarifyingQuestion,
+      };
+
+      setAiData(next);
+      setAiStepsText(joinStepsAsText(next.steps));
+
+      // Auto-fill category + priority
+      setFormData((prev) => ({
+        ...prev,
+        priority: next.priority,
+        category: next.category,
+      }));
+
+      // ✅ FIX: remove category error key completely (don’t keep empty key)
+      setErrors((prev) => {
+        const nextErrors = { ...prev };
+        delete nextErrors.category;
+        return nextErrors;
+      });
+
+      setAiApplied(true);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || "AI request failed";
+      setAiError(msg);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleApplyStepsToDescription = () => {
+    const stepsText = aiStepsText.trim();
+    if (!stepsText) return;
+
+    setFormData((prev) => {
+      const base = prev.description.trim();
+      const block = `\n\nAI Suggested Steps:\n${stepsText}\n`;
+      // avoid duplicate block if clicked twice
+      if (base.includes("AI Suggested Steps:")) return prev;
+      return { ...prev, description: `${base}${block}`.trim() };
+    });
+
+    // focus textarea for nice UX
+    setTimeout(() => {
+      descriptionRef.current?.focus();
+    }, 0);
+  };
+
+  const handleCopySteps = async () => {
+    try {
+      await navigator.clipboard.writeText(aiStepsText || "");
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validateForm()) return;
@@ -406,7 +533,6 @@ const CreateTicket: React.FC = () => {
         navigate("/tickets", { state: { message: "Ticket created successfully!" } });
       }, 1100);
     } catch (err: any) {
-      // ✅ FIX: render Zod errors nicely
       const msg = err?.response?.data?.message;
       if (Array.isArray(msg)) {
         const nice = msg.map((e: any) => e?.message || JSON.stringify(e)).join(" • ");
@@ -522,6 +648,15 @@ const CreateTicket: React.FC = () => {
           </div>
         )}
 
+        {aiError && (
+          <div className="error-banner">
+            <Wand2 size={20} />
+            <div>
+              <strong>AI:</strong> {aiError}
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="create-ticket-form">
           {/* Basic Info */}
           <div className="form-section">
@@ -576,7 +711,9 @@ const CreateTicket: React.FC = () => {
                   className={errors.departmentId ? "error" : ""}
                   disabled={deptLoading}
                 >
-                  <option value="">{deptLoading ? "Loading departments..." : "Select Department"}</option>
+                  <option value="">
+                    {deptLoading ? "Loading departments..." : "Select Department"}
+                  </option>
                   {departments.map((d) => (
                     <option key={d._id} value={d._id}>
                       {d.name}
@@ -641,7 +778,15 @@ const CreateTicket: React.FC = () => {
                       className={`category-card ${formData.category === cat.value ? "selected" : ""}`}
                       onClick={() => {
                         setFormData((prev) => ({ ...prev, category: cat.value }));
-                        if (errors.category) setErrors((prev) => ({ ...prev, category: "" }));
+
+                        // ✅ FIX: remove category error key completely
+                        if (errors.category) {
+                          setErrors((prev) => {
+                            const next = { ...prev };
+                            delete next.category;
+                            return next;
+                          });
+                        }
                       }}
                     >
                       <div className="category-icon">{cat.icon}</div>
@@ -670,9 +815,28 @@ const CreateTicket: React.FC = () => {
 
           {/* Priority & Due date */}
           <div className="form-section">
-            <div className="section-header">
-              <TrendingUp size={20} />
-              <h2>Priority & Schedule</h2>
+            <div className="section-header" style={{ display: "flex", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <TrendingUp size={20} />
+                <h2>Priority & Schedule</h2>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleAISuggest}
+                disabled={aiLoading || loading || success}
+                className="btn-draft"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  opacity: aiLoading ? 0.8 : 1,
+                }}
+                title="AI Suggest Category & Priority"
+              >
+                {aiLoading ? <Loader2 size={16} className="saving-spinner" /> : <Wand2 size={16} />}
+                {aiLoading ? "Analyzing..." : "AI Suggest"}
+              </button>
             </div>
 
             <div className="section-content">
@@ -715,6 +879,84 @@ const CreateTicket: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* ✅ AI Suggest Results Panel */}
+              {aiData && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    padding: 14,
+                    borderRadius: 12,
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    background: "rgba(255,255,255,0.6)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <Sparkles size={18} />
+                    <strong>AI Suggestions</strong>
+                    {aiApplied && (
+                      <span style={{ fontSize: 12, opacity: 0.8 }}>
+                        (Applied to Category & Priority)
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: 13, opacity: 0.95, marginBottom: 8 }}>
+                    <strong>Summary:</strong> {aiData.shortSummary}
+                  </div>
+
+                  {aiData.clarifyingQuestion && (
+                    <div style={{ fontSize: 13, marginBottom: 10, color: "#7c2d12" }}>
+                      <strong>Clarifying question:</strong> {aiData.clarifyingQuestion}
+                    </div>
+                  )}
+
+                  <label style={{ display: "block", fontSize: 13, marginBottom: 6 }}>
+                    <strong>Suggested Steps</strong> (editable)
+                  </label>
+
+                  <textarea
+                    value={aiStepsText}
+                    onChange={(e) => setAiStepsText(e.target.value)}
+                    rows={6}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      padding: 10,
+                      borderRadius: 10,
+                      border: "1px solid rgba(0,0,0,0.12)",
+                      fontSize: 13,
+                      lineHeight: 1.4,
+                    }}
+                    placeholder="AI steps will appear here..."
+                  />
+
+                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="btn-draft"
+                      onClick={handleApplyStepsToDescription}
+                      disabled={!aiStepsText.trim()}
+                      style={{ display: "flex", alignItems: "center", gap: 8 }}
+                    >
+                      <MessageSquare size={16} />
+                      Apply steps to Description
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn-draft"
+                      onClick={handleCopySteps}
+                      disabled={!aiStepsText.trim()}
+                      style={{ display: "flex", alignItems: "center", gap: 8 }}
+                      title="Copy steps"
+                    >
+                      <Copy size={16} />
+                      Copy steps
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -893,10 +1135,7 @@ const CreateTicket: React.FC = () => {
                 className="btn-draft"
                 onClick={handleSaveDraft}
                 disabled={
-                  !formData.title &&
-                  !formData.description &&
-                  !formData.category &&
-                  !formData.departmentId
+                  !formData.title && !formData.description && !formData.category && !formData.departmentId
                 }
               >
                 <Save size={18} />

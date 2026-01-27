@@ -11,8 +11,14 @@ import usersRoutes from "./routes/user.routes"; // ✅ make sure the file name i
 import ticketsRoutes from "./routes/ticket.routes";
 import notificationsRoutes from "./routes/notification.routes";
 import departmentsRoutes from "./routes/departments.routes";
+import aiRoutes from "./routes/ai.routes";
+
+
+
 
 const app = express();
+
+
 
 /* =========================
    Core Middleware
@@ -85,6 +91,7 @@ app.use("/api/users", usersRoutes);
 app.use("/api/tickets", ticketsRoutes);
 app.use("/api/notifications", notificationsRoutes);
 app.use("/api/departments", departmentsRoutes);
+app.use("/api/ai", aiRoutes);
 
 /* =========================
    404

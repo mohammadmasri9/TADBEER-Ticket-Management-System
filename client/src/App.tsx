@@ -12,14 +12,12 @@ import Profile from "../src/pages/Profile";
 import AddUser from "../src/pages/AddUser";
 import Kanban from "../src/pages/Kanban";
 import CreateTicket from "../src/pages/CreateTicket";
+import Notifications from "../src/pages/Notifications";
+import SLAPage from "../src/pages/SLAPage";
 
 import AuthLayout from "../src/layouts/AuthLayout";
 import DashboardLayout from "../src/layouts/DashboardLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
-import Notifications from "../src/pages/Notifications";
-import SLAPage from "../src/pages/SLAPage";
-
-
 
 import "./style/Dashboard.css";
 
@@ -48,6 +46,7 @@ export default function AppRoutes() {
         <Route path="tickets/:id" element={<TicketDetails />} />
         <Route path="kanban" element={<Kanban />} />
         <Route path="createticket" element={<CreateTicket />} />
+        <Route path="notifications" element={<Notifications />} />
 
         {/* admin/manager */}
         <Route path="admin/users" element={<ManageUsers />} />
@@ -55,18 +54,12 @@ export default function AppRoutes() {
         <Route path="manager/reports" element={<Reports />} />
         <Route path="admin/sla" element={<SLAPage />} />
 
-
         {/* profile */}
         <Route path="profile/:id" element={<Profile />} />
       </Route>
-<Route path="/notifications" element={<Notifications />} />
 
       {/* fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
-
-
-
-// app.ts

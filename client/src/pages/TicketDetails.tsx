@@ -3,7 +3,21 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import Footer from "../components/Footer";
 import "../style/TicketDetails.css";
-import { AlertCircle, ArrowLeft, Loader2, UserPlus2, Eye, Shield, Trash2 } from "lucide-react";
+
+import {
+  AlertCircle,
+  ArrowLeft,
+  Loader2,
+  UserPlus2,
+  Eye,
+  Shield,
+  Trash2,
+  Wand2,
+  Sparkles,
+  MessageSquare,
+  Copy,
+  X,
+} from "lucide-react";
 
 import {
   getTicketById,
@@ -22,12 +36,42 @@ import {
 import { getDepartmentEmployees, UserDTO } from "../../api/users";
 import { useAuth } from "../context/AuthContext";
 
+// ✅ AI API
+import { assistTicketAI } from "../../api/ai";
+
 function isObjectId(val: any) {
   return typeof val === "string" && /^[a-f\d]{24}$/i.test(val);
 }
 
 function normalizeId(val: any): string {
   return val?._id?.toString?.() ?? val?.toString?.() ?? "";
+}
+
+function joinStepsAsText(steps: string[]) {
+  if (!steps?.length) return "";
+  return steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+}
+
+function extractSuggestedStatus(text: string): TicketStatus | null {
+  const t = String(text || "").toLowerCase();
+
+  // Look for explicit label first
+  const m = t.match(/suggested\s*status\s*[:\-]\s*(open|in-progress|pending|resolved|closed)/i);
+  if (m?.[1]) return m[1] as TicketStatus;
+
+  // Other variants
+  const m2 = t.match(/status\s*[:\-]\s*(open|in-progress|pending|resolved|closed)/i);
+  if (m2?.[1]) return m2[1] as TicketStatus;
+
+  // Fallback: try to detect if it contains one status word clearly
+  const statuses: TicketStatus[] = ["open", "in-progress", "pending", "resolved", "closed"];
+  for (const s of statuses) {
+    if (t.includes(` ${s} `) || t.includes(`${s}.`) || t.includes(`${s},`) || t.includes(`${s}\n`)) {
+      return s;
+    }
+  }
+
+  return null;
 }
 
 export default function TicketDetails() {
@@ -59,6 +103,20 @@ export default function TicketDetails() {
   const [toast, setToast] = useState("");
 
   const isManager = String((user as any)?.role || "") === "manager";
+
+  /* =========================
+     ✅ AI Assistant (Floating)
+  ========================= */
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiQuestion, setAiQuestion] = useState("");
+  const [aiReply, setAiReply] = useState("");
+  const [aiStepsText, setAiStepsText] = useState("");
+  const [aiClarify, setAiClarify] = useState("");
+
+  const [aiSuggestedStatus, setAiSuggestedStatus] = useState<TicketStatus | null>(null);
+  const [aiApplyingStatus, setAiApplyingStatus] = useState(false);
 
   /* =========================
      Load ticket + comments
@@ -130,7 +188,6 @@ export default function TicketDetails() {
   /* =========================
      Resolve permissions for current viewer
   ========================= */
-  // ✅ FIX: include userId + uid as well
   const myId = useMemo(
     () =>
       String(
@@ -238,7 +295,9 @@ export default function TicketDetails() {
       setToast("");
 
       const updated = await updateTicketStatus(id, status);
-      setData((prev) => (prev ? { ...prev, ticket: { ...prev.ticket, status: updated.status } } : prev));
+      setData((prev) =>
+        prev ? { ...prev, ticket: { ...prev.ticket, status: updated.status } } : prev
+      );
 
       setToast("Status updated ✅");
     } catch (e: any) {
@@ -272,6 +331,14 @@ export default function TicketDetails() {
       setData((prev) => (prev ? { ...prev, comments: [...prev.comments, newComment] } : prev));
       setCommentText("");
       setToast("Comment added ✅");
+
+      // ✅ If AI modal is open, remind user they can ask AI again
+      if (aiOpen) {
+        setAiReply("");
+        setAiStepsText("");
+        setAiClarify("");
+        setAiSuggestedStatus(null);
+      }
     } catch (e: any) {
       setToast(e?.response?.data?.message || e?.message || "Failed to add comment");
     } finally {
@@ -295,7 +362,16 @@ export default function TicketDetails() {
 
       const updated = await assignTicket(id, assigneeId);
       setData((prev) =>
-        prev ? { ...prev, ticket: { ...(prev.ticket as TicketDTO), assignee: (updated as any).assignee, watchers: (updated as any).watchers } } : prev
+        prev
+          ? {
+              ...prev,
+              ticket: {
+                ...(prev.ticket as TicketDTO),
+                assignee: (updated as any).assignee,
+                watchers: (updated as any).watchers,
+              },
+            }
+          : prev
       );
 
       setToast("Ticket reassigned ✅");
@@ -355,6 +431,115 @@ export default function TicketDetails() {
   };
 
   /* =========================
+     ✅ AI: Ask assistant (reads comments from backend context)
+     - We force a structured first line: Suggested Status: <...>
+  ========================= */
+  const handleAskAI = async () => {
+    if (!id) return;
+
+    const q = aiQuestion.trim();
+    if (!q) return;
+
+    setAiLoading(true);
+    setAiError("");
+
+    try {
+      const forcedPrompt = `
+You are an IT helpdesk assistant for a ticket management system.
+
+You WILL be given ticket context (title, description, status, priority) and recent comments.
+
+Your job:
+1) Answer the user's question clearly.
+2) Based on the ticket comments and current progress, recommend the BEST ticket status from:
+open | in-progress | pending | resolved | closed
+3) Output MUST start with exactly:
+Suggested Status: <one-of-the-statuses>
+
+Then provide:
+- Reply: (short paragraph)
+- Steps: (bulleted list, if needed)
+- Clarifying Question: (optional)
+
+User Question: ${q}
+`.trim();
+
+      const res = await assistTicketAI({ ticketId: id, question: forcedPrompt });
+
+      const reply = String((res as any)?.reply || "");
+      const steps = Array.isArray((res as any)?.steps) ? ((res as any)?.steps as string[]) : [];
+      const clarify = String((res as any)?.clarifyingQuestion || "");
+
+      setAiReply(reply);
+      setAiStepsText(joinStepsAsText(steps));
+      setAiClarify(clarify);
+
+      const suggested = extractSuggestedStatus(`${reply}\n${clarify}\n${steps.join("\n")}`);
+      setAiSuggestedStatus(suggested);
+    } catch (e: any) {
+      setAiError(e?.response?.data?.message || e?.message || "AI request failed");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleCopyAI = async () => {
+    try {
+      const block = [
+        aiSuggestedStatus ? `Suggested Status: ${aiSuggestedStatus}` : "",
+        aiReply ? `Reply:\n${aiReply}` : "",
+        aiStepsText ? `Steps:\n${aiStepsText}` : "",
+        aiClarify ? `Clarifying Question:\n${aiClarify}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      await navigator.clipboard.writeText(block);
+      setToast("Copied ✅");
+      setTimeout(() => setToast(""), 1200);
+    } catch {
+      // ignore
+    }
+  };
+
+  // ✅ Apply AI suggested status to UI + (optional) save to backend
+  const handleApplyAISuggestedStatus = async (saveToServer: boolean) => {
+    if (!ticket || !id) return;
+    if (!aiSuggestedStatus) return;
+
+    // Set local status dropdown
+    setStatus(aiSuggestedStatus);
+
+    if (!saveToServer) {
+      setToast("AI status applied (not saved yet).");
+      setTimeout(() => setToast(""), 1500);
+      return;
+    }
+
+    if (!canWrite) {
+      setToast("Read-only: cannot save status.");
+      setTimeout(() => setToast(""), 1500);
+      return;
+    }
+
+    try {
+      setAiApplyingStatus(true);
+      setToast("");
+
+      const updated = await updateTicketStatus(id, aiSuggestedStatus);
+      setData((prev) =>
+        prev ? { ...prev, ticket: { ...prev.ticket, status: updated.status } } : prev
+      );
+      setToast("AI status saved ✅");
+    } catch (e: any) {
+      setToast(e?.response?.data?.message || e?.message || "Failed to save AI status");
+    } finally {
+      setAiApplyingStatus(false);
+      setTimeout(() => setToast(""), 1500);
+    }
+  };
+
+  /* =========================
      UI states
   ========================= */
   if (loading) {
@@ -391,12 +576,16 @@ export default function TicketDetails() {
   const watchers = ((ticket as any)?.watchers || []) as any[];
 
   return (
-    <div className="ticket-details-page">
+    <div className="ticket-details-page" style={{ position: "relative" }}>
       <div className="ticket-details-content">
         {/* Header */}
         <div className="ticket-details-header">
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <button className="status-save-btn" onClick={() => navigate("/tickets")} style={{ padding: "10px 14px" }}>
+            <button
+              className="status-save-btn"
+              onClick={() => navigate("/tickets")}
+              style={{ padding: "10px 14px" }}
+            >
               <ArrowLeft size={16} /> Back
             </button>
             <h2 className="ticket-details-title">Ticket Details</h2>
@@ -419,7 +608,9 @@ export default function TicketDetails() {
             }}
           >
             {myWatcherPermission === "read" ? <Eye size={18} /> : <Shield size={18} />}
-            <strong>You are a watcher: {myWatcherPermission === "read" ? "Read-only" : "Read & Write"}</strong>
+            <strong>
+              You are a watcher: {myWatcherPermission === "read" ? "Read-only" : "Read & Write"}
+            </strong>
           </div>
         )}
 
@@ -444,7 +635,15 @@ export default function TicketDetails() {
 
           {/* ✅ Manager Assign Section */}
           {isManager && (
-            <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "2px solid var(--ooredoo-grey-lightest)", background: "var(--ooredoo-bg-light)" }}>
+            <div
+              style={{
+                marginTop: 14,
+                padding: 12,
+                borderRadius: 12,
+                border: "2px solid var(--ooredoo-grey-lightest)",
+                background: "var(--ooredoo-bg-light)",
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <UserPlus2 size={18} />
                 <strong>Manager: Reassign Ticket</strong>
@@ -484,10 +683,17 @@ export default function TicketDetails() {
                   )}
 
                   <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
-                    <button className="status-save-btn" onClick={handleAssign} disabled={!canAssign} style={{ opacity: !canAssign ? 0.6 : 1 }}>
+                    <button
+                      className="status-save-btn"
+                      onClick={handleAssign}
+                      disabled={!canAssign}
+                      style={{ opacity: !canAssign ? 0.6 : 1 }}
+                    >
                       {assigning ? "Assigning..." : "Assign"}
                     </button>
-                    <span style={{ fontSize: 13, opacity: 0.8 }}>Only employees inside your department appear here.</span>
+                    <span style={{ fontSize: 13, opacity: 0.8 }}>
+                      Only employees inside your department appear here.
+                    </span>
                   </div>
                 </>
               )}
@@ -496,7 +702,15 @@ export default function TicketDetails() {
 
           {/* ✅ Watchers Section (manager/admin) */}
           {(isManager || String((user as any)?.role || "") === "admin") && (
-            <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: "2px solid var(--ooredoo-grey-lightest)", background: "var(--ooredoo-bg-light)" }}>
+            <div
+              style={{
+                marginTop: 14,
+                padding: 12,
+                borderRadius: 12,
+                border: "2px solid var(--ooredoo-grey-lightest)",
+                background: "var(--ooredoo-bg-light)",
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                 <Eye size={18} />
                 <strong>Watchers</strong>
@@ -570,7 +784,8 @@ export default function TicketDetails() {
                             <div>
                               <strong>{label}</strong>
                               <div style={{ opacity: 0.75, fontSize: 13 }}>
-                                Permission: <b>{w.permission === "write" ? "Read & Write" : "Read-only"}</b>
+                                Permission:{" "}
+                                <b>{w.permission === "write" ? "Read & Write" : "Read-only"}</b>
                               </div>
                             </div>
 
@@ -686,6 +901,386 @@ export default function TicketDetails() {
           </div>
         </div>
       </div>
+
+      {/* ✅ Floating AI Button */}
+      <button
+        type="button"
+        onClick={() => {
+          setAiOpen(true);
+          setAiError("");
+          setAiReply("");
+          setAiStepsText("");
+          setAiClarify("");
+          setAiSuggestedStatus(null);
+
+          // prefill a strong default question that requests status update based on comments
+          setAiQuestion(
+            "Based on the recent comments and progress, what should the ticket status be now? Explain briefly and give steps if needed."
+          );
+        }}
+        style={{
+          position: "fixed",
+          right: 22,
+          bottom: 22,
+          zIndex: 9999,
+          border: "none",
+          borderRadius: 18,
+          padding: "14px 16px",
+          cursor: "pointer",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.22)",
+          background: "#E60000",
+          color: "#fff",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          fontWeight: 900,
+          fontSize: 15,
+        }}
+        title="Open AI Assistant"
+      >
+        <Wand2 size={20} />
+        AI Assistant
+      </button>
+
+      {/* ✅ Big AI Modal */}
+      {aiOpen && (
+        <div
+          onClick={() => setAiOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.50)",
+            zIndex: 99999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 18,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "min(980px, 96vw)",
+              height: "min(86vh, 900px)",
+              borderRadius: 18,
+              background: "#fff",
+              border: "1px solid rgba(0,0,0,0.08)",
+              boxShadow: "0 24px 70px rgba(0,0,0,0.38)",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                padding: "14px 16px",
+                borderBottom: "1px solid rgba(0,0,0,0.08)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                background: "#fff",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Wand2 size={20} />
+                <div style={{ display: "grid" }}>
+                  <strong style={{ fontSize: 16 }}>AI Assistant</strong>
+                  <span style={{ fontSize: 13, opacity: 0.75 }}>Ticket #{ticket._id}</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAiOpen(false)}
+                style={{
+                  border: "none",
+                  background: "rgba(0,0,0,0.04)",
+                  cursor: "pointer",
+                  padding: 8,
+                  borderRadius: 12,
+                }}
+                aria-label="Close AI Assistant"
+                title="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div
+              style={{
+                padding: 16,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 16,
+                flex: 1,
+                overflow: "auto",
+              }}
+            >
+              {/* Left: question + actions */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {aiError && (
+                  <div className="error-banner" style={{ marginBottom: 6 }}>
+                    <AlertCircle size={18} />
+                    <div>
+                      <strong>AI:</strong> {aiError}
+                    </div>
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 14,
+                    border: "1px solid rgba(0,0,0,0.10)",
+                    background: "rgba(0,0,0,0.02)",
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 6 }}>AI will read:</div>
+                  <div style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
+                    • Ticket title/description/status/priority <br />
+                    • Last comments (from backend) <br />
+                    Then it will recommend the best status.
+                  </div>
+                </div>
+
+                <label style={{ display: "grid", gap: 8 }}>
+                  <span style={{ fontWeight: 900, fontSize: 14 }}>Your question</span>
+                  <textarea
+                    value={aiQuestion}
+                    onChange={(e) => setAiQuestion(e.target.value)}
+                    rows={8}
+                    placeholder="Example: Based on comments, what status should be now?"
+                    disabled={aiLoading}
+                    style={{
+                      width: "100%",
+                      resize: "vertical",
+                      padding: 12,
+                      borderRadius: 12,
+                      border: "1px solid rgba(0,0,0,0.14)",
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                      background: "#fff",
+                    }}
+                  />
+                </label>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={handleAskAI}
+                    disabled={aiLoading || !aiQuestion.trim()}
+                    className="status-save-btn"
+                    style={{
+                      opacity: aiLoading || !aiQuestion.trim() ? 0.6 : 1,
+                      padding: "10px 14px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    {aiLoading ? (
+                      <>
+                        <Loader2 size={18} className="saving-spinner" /> Thinking...
+                      </>
+                    ) : (
+                      <>
+                        <Wand2 size={18} /> Ask AI
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCopyAI}
+                    disabled={!aiReply && !aiStepsText && !aiClarify}
+                    className="status-save-btn"
+                    style={{
+                      opacity: !aiReply && !aiStepsText && !aiClarify ? 0.6 : 1,
+                      padding: "10px 14px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Copy size={18} /> Copy
+                  </button>
+                </div>
+
+                {/* ✅ Status control from AI */}
+                <div
+                  style={{
+                    marginTop: 4,
+                    padding: 12,
+                    borderRadius: 14,
+                    border: "1px solid rgba(0,0,0,0.10)",
+                    background: "#fff",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                    <Sparkles size={18} />
+                    <strong style={{ fontSize: 14 }}>Status suggestion</strong>
+                  </div>
+
+                  <div style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
+                    <strong>Current:</strong> {ticket.status}
+                    <br />
+                    <strong>AI Suggested:</strong>{" "}
+                    {aiSuggestedStatus ? (
+                      <span style={{ color: "#0f766e", fontWeight: 900 }}>{aiSuggestedStatus}</span>
+                    ) : (
+                      <span style={{ opacity: 0.7 }}>— ask AI to get suggestion</span>
+                    )}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="status-save-btn"
+                      disabled={!aiSuggestedStatus || aiApplyingStatus}
+                      onClick={() => handleApplyAISuggestedStatus(false)}
+                      style={{
+                        opacity: !aiSuggestedStatus || aiApplyingStatus ? 0.6 : 1,
+                        padding: "10px 14px",
+                      }}
+                      title="Apply to status dropdown only"
+                    >
+                      Apply to UI
+                    </button>
+
+                    <button
+                      type="button"
+                      className="status-save-btn"
+                      disabled={!aiSuggestedStatus || aiApplyingStatus || !canWrite}
+                      onClick={() => handleApplyAISuggestedStatus(true)}
+                      style={{
+                        opacity: !aiSuggestedStatus || aiApplyingStatus || !canWrite ? 0.6 : 1,
+                        padding: "10px 14px",
+                      }}
+                      title={!canWrite ? "Read-only: cannot save status" : "Save status to server"}
+                    >
+                      {aiApplyingStatus ? "Saving..." : "Save Status"}
+                    </button>
+                  </div>
+
+                  {!canWrite && (
+                    <div style={{ marginTop: 8, color: "#b91c1c", fontWeight: 800, fontSize: 13 }}>
+                      Read-only: you can see AI suggestion, but you cannot save status.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Right: response */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 12,
+                  borderLeft: "1px solid rgba(0,0,0,0.08)",
+                  paddingLeft: 16,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Sparkles size={18} />
+                  <strong style={{ fontSize: 15 }}>AI Response</strong>
+                </div>
+
+                {/* Reply box */}
+                <div
+                  style={{
+                    padding: 12,
+                    borderRadius: 14,
+                    border: "1px solid rgba(0,0,0,0.10)",
+                    background: "rgba(0,0,0,0.02)",
+                    minHeight: 160,
+                  }}
+                >
+                  <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Reply</div>
+                  <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
+                    {aiReply || "Ask a question to generate a reply…"}
+                  </div>
+                </div>
+
+                {/* Clarifying */}
+                {aiClarify && (
+                  <div
+                    style={{
+                      padding: 12,
+                      borderRadius: 14,
+                      border: "1px solid rgba(124,45,18,0.18)",
+                      background: "rgba(124,45,18,0.06)",
+                      color: "#7c2d12",
+                      fontSize: 14,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    <strong>Clarifying question:</strong> {aiClarify}
+                  </div>
+                )}
+
+                {/* Steps */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>
+                    Steps (editable)
+                  </div>
+                  <textarea
+                    value={aiStepsText}
+                    onChange={(e) => setAiStepsText(e.target.value)}
+                    placeholder="AI steps will appear here…"
+                    disabled={aiLoading}
+                    style={{
+                      width: "100%",
+                      flex: 1,
+                      minHeight: 220,
+                      resize: "none",
+                      padding: 12,
+                      borderRadius: 14,
+                      border: "1px solid rgba(0,0,0,0.14)",
+                      fontSize: 14,
+                      lineHeight: 1.7,
+                      background: "#fff",
+                    }}
+                  />
+                </div>
+
+                {/* Quick suggestion buttons */}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="status-save-btn"
+                    onClick={() =>
+                      setAiQuestion(
+                        "Based on comments, tell me the best next step and whether status should change."
+                      )
+                    }
+                    style={{ padding: "10px 14px" }}
+                    disabled={aiLoading}
+                  >
+                    <MessageSquare size={18} /> Next step + status
+                  </button>
+
+                  <button
+                    type="button"
+                    className="status-save-btn"
+                    onClick={() =>
+                      setAiQuestion(
+                        "Summarize the progress from comments and recommend status."
+                      )
+                    }
+                    style={{ padding: "10px 14px" }}
+                    disabled={aiLoading}
+                  >
+                    <Sparkles size={18} /> Summarize + status
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Footer />
     </div>

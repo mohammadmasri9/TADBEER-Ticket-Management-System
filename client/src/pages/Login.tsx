@@ -1,6 +1,6 @@
 // src/pages/Login.tsx
-import React, { useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, ArrowRight } from "lucide-react";
 import "../style/Login.css";
@@ -8,9 +8,8 @@ import tadbeerLogo from "../assets/images/tadbeer-logo.png";
 import ooredooLogo from "../assets/images/ooredoo-logo.png";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, user } = useAuth() as any; // keep as any if your AuthContext type isn't strict yet
   const nav = useNavigate();
-  const loc = useLocation() as any;
 
   const [email, setEmail] = useState("manager@ooredoo.ps");
   const [password, setPassword] = useState("123456");
@@ -18,7 +17,10 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const redirectTo = loc?.state?.from || "/dashboard";
+  // If already logged in, force dashboard
+  useEffect(() => {
+    if (user) nav("/dashboard", { replace: true });
+  }, [user, nav]);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,7 +29,9 @@ export default function Login() {
 
     try {
       await login({ email, password });
-      nav(redirectTo, { replace: true });
+
+      // ✅ Always go to dashboard مهما كان
+      nav("/dashboard", { replace: true });
     } catch (e: any) {
       const msg =
         e?.response?.data?.message ||

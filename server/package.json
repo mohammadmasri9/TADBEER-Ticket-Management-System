@@ -8,6 +8,7 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
@@ -17,7 +18,9 @@
     "helmet": "^8.1.0",
     "mongodb": "^7.0.0",
     "mongoose": "^8.21.0",
-    "morgan": "^1.10.1"
+    "morgan": "^1.10.1",
+    "openai": "^6.16.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

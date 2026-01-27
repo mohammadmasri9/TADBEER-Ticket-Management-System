@@ -103,23 +103,50 @@ interface TicketListItemProps {
 }
 const TicketListItem: React.FC<TicketListItemProps> = ({ ticket, onClick }) => (
   <button className="dashListItem" onClick={onClick} type="button">
-    <div className="dashListTop">
-      <span className="dashListTitle">{ticket.title}</span>
-      <span className={`dashPill status ${ticket.status}`}>{ticket.status}</span>
+    {/* Header with priority badge */}
+    <div className="ticket-card-header">
+      <span className={`priority-badge ${ticket.priority}`}>
+        {ticket.priority === 'urgent' }
+        {ticket.priority === 'high' } 
+        {ticket.priority === 'medium'}
+        {ticket.priority === 'low'}
+        <span className="priority-text">{ticket.priority} Priority</span>
+      </span>
+      <span className="ticket-number">Ticket# {ticket._id?.slice(-6) || 'N/A'}</span>
     </div>
-    <div className="dashListMeta">
-      <span className={`dashPill pri ${ticket.priority}`}>{ticket.priority}</span>
-      <span className="dashMuted">
-        <Tag size={14} aria-hidden="true" />
-        {ticket.category}
-      </span>
-      <span className="dashMuted">
-        <Calendar size={14} aria-hidden="true" />
-        {formatDate(ticket.createdAt)}
-      </span>
+
+    {/* Title */}
+    <h3 className="ticket-card-title">{ticket.title}</h3>
+
+    {/* Description Preview */}
+    <p className="ticket-card-description">
+      {ticket.description?.substring(0, 120) || 'No description available'}
+      {ticket.description && ticket.description.length > 120 && '...'}
+    </p>
+
+    {/* Footer */}
+    <div className="ticket-card-footer">
+      <div className="ticket-meta-left">
+        <span className="ticket-assignee">
+          <UserCheck size={14} aria-hidden="true" />
+          {ticket.assignee?.name || ticket.assignee?.email || 'Unassigned'}
+        </span>
+        <span className="ticket-date">
+          <Calendar size={14} aria-hidden="true" />
+          Posted at {new Date(ticket.createdAt).toLocaleTimeString('en-US', { 
+            hour: 'numeric', 
+            minute: '2-digit', 
+            hour12: true 
+          })}
+        </span>
+      </div>
+      <button className="open-ticket-btn" type="button">
+        Open Ticket
+      </button>
     </div>
   </button>
 );
+
 
 interface ScopeSelectorProps {
   scope: TicketScope;
