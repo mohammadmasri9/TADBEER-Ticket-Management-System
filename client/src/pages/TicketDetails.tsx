@@ -17,6 +17,9 @@ import {
   MessageSquare,
   Copy,
   X,
+  Bot,
+  Send,
+  RefreshCw,
 } from "lucide-react";
 
 import {
@@ -35,8 +38,6 @@ import {
 
 import { getDepartmentEmployees, UserDTO } from "../../api/users";
 import { useAuth } from "../context/AuthContext";
-
-// ✅ AI API
 import { assistTicketAI } from "../../api/ai";
 
 function isObjectId(val: any) {
@@ -55,15 +56,12 @@ function joinStepsAsText(steps: string[]) {
 function extractSuggestedStatus(text: string): TicketStatus | null {
   const t = String(text || "").toLowerCase();
 
-  // Look for explicit label first
   const m = t.match(/suggested\s*status\s*[:\-]\s*(open|in-progress|pending|resolved|closed)/i);
   if (m?.[1]) return m[1] as TicketStatus;
 
-  // Other variants
   const m2 = t.match(/status\s*[:\-]\s*(open|in-progress|pending|resolved|closed)/i);
   if (m2?.[1]) return m2[1] as TicketStatus;
 
-  // Fallback: try to detect if it contains one status word clearly
   const statuses: TicketStatus[] = ["open", "in-progress", "pending", "resolved", "closed"];
   for (const s of statuses) {
     if (t.includes(` ${s} `) || t.includes(`${s}.`) || t.includes(`${s},`) || t.includes(`${s}\n`)) {
@@ -83,7 +81,6 @@ export default function TicketDetails() {
   const [status, setStatus] = useState<TicketStatus>("open");
   const [commentText, setCommentText] = useState("");
 
-  // reassignment
   const [employees, setEmployees] = useState<UserDTO[]>([]);
   const [empLoading, setEmpLoading] = useState(false);
   const [empError, setEmpError] = useState("");
@@ -91,7 +88,6 @@ export default function TicketDetails() {
   const [assigneeId, setAssigneeId] = useState("");
   const [assigning, setAssigning] = useState(false);
 
-  // watchers UI
   const [watcherUserId, setWatcherUserId] = useState("");
   const [watcherPerm, setWatcherPerm] = useState<WatcherPermission>("read");
   const [watcherSaving, setWatcherSaving] = useState(false);
@@ -104,9 +100,7 @@ export default function TicketDetails() {
 
   const isManager = String((user as any)?.role || "") === "manager";
 
-  /* =========================
-     ✅ AI Assistant (Floating)
-  ========================= */
+  // AI Assistant State
   const [aiOpen, setAiOpen] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
@@ -114,13 +108,10 @@ export default function TicketDetails() {
   const [aiReply, setAiReply] = useState("");
   const [aiStepsText, setAiStepsText] = useState("");
   const [aiClarify, setAiClarify] = useState("");
-
   const [aiSuggestedStatus, setAiSuggestedStatus] = useState<TicketStatus | null>(null);
   const [aiApplyingStatus, setAiApplyingStatus] = useState(false);
 
-  /* =========================
-     Load ticket + comments
-  ========================= */
+  // Load ticket data
   useEffect(() => {
     if (!id) return;
     let mounted = true;
@@ -154,9 +145,7 @@ export default function TicketDetails() {
   const ticket = data?.ticket;
   const comments = data?.comments || [];
 
-  /* =========================
-     Load dept employees for manager actions
-  ========================= */
+  // Load department employees
   useEffect(() => {
     if (!isManager) return;
 
@@ -166,7 +155,7 @@ export default function TicketDetails() {
         setEmpLoading(true);
         setEmpError("");
 
-        const res = await getDepartmentEmployees(); // manager’s dept
+        const res = await getDepartmentEmployees();
         if (!mounted) return;
 
         setEmployees(Array.isArray(res) ? res : []);
@@ -185,9 +174,7 @@ export default function TicketDetails() {
     };
   }, [isManager]);
 
-  /* =========================
-     Resolve permissions for current viewer
-  ========================= */
+  // Permissions
   const myId = useMemo(
     () =>
       String(
@@ -240,7 +227,6 @@ export default function TicketDetails() {
     return !!cId && !!myId && cId === myId;
   }, [ticket, myId]);
 
-  // ✅ “Write” permission for status/comment:
   const canWrite = useMemo(() => {
     if (!ticket) return false;
     if (String((user as any)?.role || "") === "admin") return true;
@@ -279,13 +265,11 @@ export default function TicketDetails() {
     return !assigning && assigneeId !== current;
   }, [ticket, canManagerAssignThisTicket, assigneeId, assigning]);
 
-  /* =========================
-     Handlers
-  ========================= */
+  // Handlers
   const handleSaveStatus = async () => {
     if (!id || !ticket) return;
     if (!canWrite) {
-      setToast("Read-only access: you can’t change status.");
+      setToast("Read-only access: you can't change status.");
       setTimeout(() => setToast(""), 1800);
       return;
     }
@@ -315,7 +299,7 @@ export default function TicketDetails() {
     if (!text) return;
 
     if (!canWrite) {
-      setToast("Read-only access: you can’t add comments.");
+      setToast("Read-only access: you can't add comments.");
       setTimeout(() => setToast(""), 1800);
       return;
     }
@@ -332,7 +316,6 @@ export default function TicketDetails() {
       setCommentText("");
       setToast("Comment added ✅");
 
-      // ✅ If AI modal is open, remind user they can ask AI again
       if (aiOpen) {
         setAiReply("");
         setAiStepsText("");
@@ -430,10 +413,7 @@ export default function TicketDetails() {
     }
   };
 
-  /* =========================
-     ✅ AI: Ask assistant (reads comments from backend context)
-     - We force a structured first line: Suggested Status: <...>
-  ========================= */
+  // AI Assistant Handler
   const handleAskAI = async () => {
     if (!id) return;
 
@@ -502,12 +482,10 @@ User Question: ${q}
     }
   };
 
-  // ✅ Apply AI suggested status to UI + (optional) save to backend
   const handleApplyAISuggestedStatus = async (saveToServer: boolean) => {
     if (!ticket || !id) return;
     if (!aiSuggestedStatus) return;
 
-    // Set local status dropdown
     setStatus(aiSuggestedStatus);
 
     if (!saveToServer) {
@@ -539,16 +517,14 @@ User Question: ${q}
     }
   };
 
-  /* =========================
-     UI states
-  ========================= */
+  // Loading state
   if (loading) {
     return (
       <div className="ticket-details-page">
         <div className="ticket-details-content">
-          <div className="ticket-info-card" style={{ display: "flex", gap: 10 }}>
-            <Loader2 size={18} />
-            <strong>Loading ticket...</strong>
+          <div className="ticket-info-card" style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
+            <Loader2 size={24} className="saving-spinner" />
+            <strong style={{ fontSize: 18 }}>Loading ticket...</strong>
           </div>
         </div>
         <Footer />
@@ -556,6 +532,7 @@ User Question: ${q}
     );
   }
 
+  // Error state
   if (error || !ticket) {
     return (
       <div className="ticket-details-page">
@@ -565,7 +542,7 @@ User Question: ${q}
             <span>{error || "Ticket not found"}</span>
           </div>
           <button className="status-save-btn" onClick={() => navigate("/tickets")}>
-            <ArrowLeft size={16} /> Back
+            <ArrowLeft size={16} /> Back to Tickets
           </button>
         </div>
         <Footer />
@@ -633,7 +610,7 @@ User Question: ${q}
             <span className={`ticket-chip status-${status}`}>Status: {status}</span>
           </div>
 
-          {/* ✅ Manager Assign Section */}
+          {/* Manager Assign Section */}
           {isManager && (
             <div
               style={{
@@ -700,7 +677,7 @@ User Question: ${q}
             </div>
           )}
 
-          {/* ✅ Watchers Section (manager/admin) */}
+          {/* Watchers Section */}
           {(isManager || String((user as any)?.role || "") === "admin") && (
             <div
               style={{
@@ -762,7 +739,7 @@ User Question: ${q}
                       <strong style={{ opacity: 0.7 }}>No watchers yet.</strong>
                     ) : (
                       watchers.map((w: any, idx: number) => {
-                        const u = w?.userId; // populated
+                        const u = w?.userId;
                         const label =
                           typeof u === "object" && u
                             ? `${u.name} — ${u.email} (${u.role})`
@@ -841,7 +818,7 @@ User Question: ${q}
               </div>
             )}
 
-            {toast && <strong>{toast}</strong>}
+            {toast && <strong style={{ color: "#0f766e" }}>{toast}</strong>}
           </div>
         </div>
 
@@ -902,7 +879,7 @@ User Question: ${q}
         </div>
       </div>
 
-      {/* ✅ Floating AI Button */}
+      {/* Modern Floating AI Button */}
       <button
         type="button"
         onClick={() => {
@@ -912,82 +889,103 @@ User Question: ${q}
           setAiStepsText("");
           setAiClarify("");
           setAiSuggestedStatus(null);
-
-          // prefill a strong default question that requests status update based on comments
           setAiQuestion(
             "Based on the recent comments and progress, what should the ticket status be now? Explain briefly and give steps if needed."
           );
         }}
         style={{
           position: "fixed",
-          right: 22,
-          bottom: 22,
+          right: 24,
+          bottom: 24,
           zIndex: 9999,
           border: "none",
-          borderRadius: 18,
-          padding: "14px 16px",
+          borderRadius: "50%",
+          width: 64,
+          height: 64,
           cursor: "pointer",
-          boxShadow: "0 16px 40px rgba(0,0,0,0.22)",
-          background: "#E60000",
+          boxShadow: "0 8px 32px rgba(230, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2)",
+          background: "linear-gradient(135deg, #E60000 0%, #B30000 100%)",
           color: "#fff",
           display: "flex",
           alignItems: "center",
-          gap: 12,
-          fontWeight: 900,
-          fontSize: 15,
+          justifyContent: "center",
+          transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          transform: "scale(1)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.transform = "scale(1.1)";
+          e.currentTarget.style.boxShadow = "0 12px 48px rgba(230, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.3)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = "scale(1)";
+          e.currentTarget.style.boxShadow = "0 8px 32px rgba(230, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2)";
         }}
         title="Open AI Assistant"
+        aria-label="Open AI Assistant"
       >
-        <Wand2 size={20} />
-        AI Assistant
+        <Bot size={28} strokeWidth={2.5} />
       </button>
 
-      {/* ✅ Big AI Modal */}
+      {/* Modern AI Modal */}
       {aiOpen && (
         <div
           onClick={() => setAiOpen(false)}
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.50)",
+            background: "rgba(0, 0, 0, 0.6)",
+            backdropFilter: "blur(4px)",
             zIndex: 99999,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            padding: 18,
+            padding: 20,
+            animation: "fadeIn 0.2s ease-out",
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              width: "min(980px, 96vw)",
-              height: "min(86vh, 900px)",
-              borderRadius: 18,
-              background: "#fff",
-              border: "1px solid rgba(0,0,0,0.08)",
-              boxShadow: "0 24px 70px rgba(0,0,0,0.38)",
+              width: "min(1100px, 96vw)",
+              maxHeight: "90vh",
+              borderRadius: 24,
+              background: "#ffffff",
+              boxShadow: "0 24px 80px rgba(0, 0, 0, 0.4)",
               display: "flex",
               flexDirection: "column",
               overflow: "hidden",
+              animation: "slideUp 0.3s ease-out",
             }}
           >
-            {/* Header */}
+            {/* Modern Header */}
             <div
               style={{
-                padding: "14px 16px",
-                borderBottom: "1px solid rgba(0,0,0,0.08)",
+                padding: "20px 24px",
+                borderBottom: "1px solid rgba(0, 0, 0, 0.08)",
+                background: "linear-gradient(135deg, #E60000 0%, #B30000 100%)",
+                color: "#fff",
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                gap: 10,
-                background: "#fff",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <Wand2 size={20} />
-                <div style={{ display: "grid" }}>
-                  <strong style={{ fontSize: 16 }}>AI Assistant</strong>
-                  <span style={{ fontSize: 13, opacity: 0.75 }}>Ticket #{ticket._id}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div
+                  style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: "50%",
+                    background: "rgba(255, 255, 255, 0.2)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Bot size={22} strokeWidth={2.5} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>AI Assistant</h3>
+                  <p style={{ margin: 0, fontSize: 13, opacity: 0.9 }}>Ticket #{ticket._id}</p>
                 </div>
               </div>
 
@@ -996,74 +994,96 @@ User Question: ${q}
                 onClick={() => setAiOpen(false)}
                 style={{
                   border: "none",
-                  background: "rgba(0,0,0,0.04)",
+                  background: "rgba(255, 255, 255, 0.2)",
+                  color: "#fff",
                   cursor: "pointer",
-                  padding: 8,
-                  borderRadius: 12,
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.2s",
                 }}
-                aria-label="Close AI Assistant"
-                title="Close"
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255, 255, 255, 0.3)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255, 255, 255, 0.2)")}
+                aria-label="Close"
               >
                 <X size={20} />
               </button>
             </div>
 
-            {/* Body */}
+            {/* Body with improved layout */}
             <div
               style={{
-                padding: 16,
+                padding: 24,
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr",
-                gap: 16,
+                gap: 24,
                 flex: 1,
                 overflow: "auto",
+                background: "#f8f9fa",
               }}
             >
-              {/* Left: question + actions */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {/* Left Panel - Input */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {aiError && (
-                  <div className="error-banner" style={{ marginBottom: 6 }}>
+                  <div
+                    style={{
+                      padding: 12,
+                      borderRadius: 12,
+                      background: "#fee",
+                      border: "1px solid #fcc",
+                      color: "#c33",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
                     <AlertCircle size={18} />
-                    <div>
-                      <strong>AI:</strong> {aiError}
-                    </div>
+                    <span>{aiError}</span>
                   </div>
                 )}
 
                 <div
                   style={{
-                    padding: 12,
-                    borderRadius: 14,
-                    border: "1px solid rgba(0,0,0,0.10)",
-                    background: "rgba(0,0,0,0.02)",
+                    padding: 16,
+                    borderRadius: 12,
+                    background: "#fff",
+                    border: "1px solid rgba(0, 0, 0, 0.08)",
                   }}
                 >
-                  <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 6 }}>AI will read:</div>
-                  <div style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
-                    • Ticket title/description/status/priority <br />
-                    • Last comments (from backend) <br />
-                    Then it will recommend the best status.
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <Sparkles size={18} style={{ color: "#E60000" }} />
+                    <strong style={{ fontSize: 14 }}>Context Awareness</strong>
                   </div>
+                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: "#666" }}>
+                    AI analyzes ticket details, comments, and history to provide intelligent recommendations
+                  </p>
                 </div>
 
-                <label style={{ display: "grid", gap: 8 }}>
-                  <span style={{ fontWeight: 900, fontSize: 14 }}>Your question</span>
+                <label style={{ display: "grid", gap: 10 }}>
+                  <strong style={{ fontSize: 14, color: "#333" }}>Your Question</strong>
                   <textarea
                     value={aiQuestion}
                     onChange={(e) => setAiQuestion(e.target.value)}
-                    rows={8}
-                    placeholder="Example: Based on comments, what status should be now?"
+                    rows={6}
+                    placeholder="Ask about ticket status, next steps, or resolution..."
                     disabled={aiLoading}
                     style={{
                       width: "100%",
                       resize: "vertical",
-                      padding: 12,
+                      padding: 14,
                       borderRadius: 12,
-                      border: "1px solid rgba(0,0,0,0.14)",
+                      border: "1px solid rgba(0, 0, 0, 0.12)",
                       fontSize: 14,
                       lineHeight: 1.6,
+                      fontFamily: "inherit",
                       background: "#fff",
+                      transition: "border-color 0.2s",
                     }}
+                    onFocus={(e) => (e.target.style.borderColor = "#E60000")}
+                    onBlur={(e) => (e.target.style.borderColor = "rgba(0, 0, 0, 0.12)")}
                   />
                 </label>
 
@@ -1072,22 +1092,29 @@ User Question: ${q}
                     type="button"
                     onClick={handleAskAI}
                     disabled={aiLoading || !aiQuestion.trim()}
-                    className="status-save-btn"
                     style={{
-                      opacity: aiLoading || !aiQuestion.trim() ? 0.6 : 1,
-                      padding: "10px 14px",
+                      border: "none",
+                      background: aiLoading || !aiQuestion.trim() ? "#ccc" : "linear-gradient(135deg, #E60000 0%, #B30000 100%)",
+                      color: "#fff",
+                      padding: "12px 20px",
+                      borderRadius: 12,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      cursor: aiLoading || !aiQuestion.trim() ? "not-allowed" : "pointer",
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
+                      transition: "all 0.2s",
+                      boxShadow: aiLoading || !aiQuestion.trim() ? "none" : "0 2px 8px rgba(230, 0, 0, 0.3)",
                     }}
                   >
                     {aiLoading ? (
                       <>
-                        <Loader2 size={18} className="saving-spinner" /> Thinking...
+                        <Loader2 size={18} className="saving-spinner" /> Processing...
                       </>
                     ) : (
                       <>
-                        <Wand2 size={18} /> Ask AI
+                        <Send size={18} /> Ask AI
                       </>
                     )}
                   </button>
@@ -1096,185 +1123,227 @@ User Question: ${q}
                     type="button"
                     onClick={handleCopyAI}
                     disabled={!aiReply && !aiStepsText && !aiClarify}
-                    className="status-save-btn"
                     style={{
-                      opacity: !aiReply && !aiStepsText && !aiClarify ? 0.6 : 1,
-                      padding: "10px 14px",
+                      border: "1px solid rgba(0, 0, 0, 0.12)",
+                      background: "#fff",
+                      color: "#333",
+                      padding: "12px 20px",
+                      borderRadius: 12,
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: !aiReply && !aiStepsText && !aiClarify ? "not-allowed" : "pointer",
                       display: "flex",
                       alignItems: "center",
                       gap: 8,
+                      opacity: !aiReply && !aiStepsText && !aiClarify ? 0.5 : 1,
+                      transition: "all 0.2s",
                     }}
                   >
-                    <Copy size={18} /> Copy
+                    <Copy size={18} /> Copy Response
                   </button>
                 </div>
 
-                {/* ✅ Status control from AI */}
+                {/* Status Suggestion Card */}
                 <div
                   style={{
-                    marginTop: 4,
-                    padding: 12,
-                    borderRadius: 14,
-                    border: "1px solid rgba(0,0,0,0.10)",
+                    padding: 16,
+                    borderRadius: 12,
                     background: "#fff",
+                    border: "1px solid rgba(0, 0, 0, 0.08)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                    <Sparkles size={18} />
-                    <strong style={{ fontSize: 14 }}>Status suggestion</strong>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                    <Sparkles size={18} style={{ color: "#E60000" }} />
+                    <strong style={{ fontSize: 14 }}>Status Recommendation</strong>
                   </div>
 
-                  <div style={{ fontSize: 13, lineHeight: 1.6, opacity: 0.9 }}>
-                    <strong>Current:</strong> {ticket.status}
-                    <br />
-                    <strong>AI Suggested:</strong>{" "}
-                    {aiSuggestedStatus ? (
-                      <span style={{ color: "#0f766e", fontWeight: 900 }}>{aiSuggestedStatus}</span>
-                    ) : (
-                      <span style={{ opacity: 0.7 }}>— ask AI to get suggestion</span>
-                    )}
+                  <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ color: "#666" }}>Current:</span>
+                      <span style={{ fontWeight: 600, color: "#333" }}>{ticket.status}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: "#666" }}>AI Suggested:</span>
+                      {aiSuggestedStatus ? (
+                        <span style={{ fontWeight: 700, color: "#0f766e" }}>{aiSuggestedStatus}</span>
+                      ) : (
+                        <span style={{ opacity: 0.5 }}>Pending...</span>
+                      )}
+                    </div>
                   </div>
 
-                  <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     <button
                       type="button"
-                      className="status-save-btn"
-                      disabled={!aiSuggestedStatus || aiApplyingStatus}
                       onClick={() => handleApplyAISuggestedStatus(false)}
+                      disabled={!aiSuggestedStatus || aiApplyingStatus}
                       style={{
-                        opacity: !aiSuggestedStatus || aiApplyingStatus ? 0.6 : 1,
-                        padding: "10px 14px",
+                        border: "1px solid rgba(0, 0, 0, 0.12)",
+                        background: "#fff",
+                        color: "#333",
+                        padding: "10px 16px",
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: !aiSuggestedStatus || aiApplyingStatus ? "not-allowed" : "pointer",
+                        opacity: !aiSuggestedStatus || aiApplyingStatus ? 0.5 : 1,
+                        transition: "all 0.2s",
                       }}
-                      title="Apply to status dropdown only"
                     >
                       Apply to UI
                     </button>
 
                     <button
                       type="button"
-                      className="status-save-btn"
-                      disabled={!aiSuggestedStatus || aiApplyingStatus || !canWrite}
                       onClick={() => handleApplyAISuggestedStatus(true)}
+                      disabled={!aiSuggestedStatus || aiApplyingStatus || !canWrite}
                       style={{
-                        opacity: !aiSuggestedStatus || aiApplyingStatus || !canWrite ? 0.6 : 1,
-                        padding: "10px 14px",
+                        border: "none",
+                        background: !aiSuggestedStatus || aiApplyingStatus || !canWrite ? "#ccc" : "#0f766e",
+                        color: "#fff",
+                        padding: "10px 16px",
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: !aiSuggestedStatus || aiApplyingStatus || !canWrite ? "not-allowed" : "pointer",
+                        transition: "all 0.2s",
                       }}
-                      title={!canWrite ? "Read-only: cannot save status" : "Save status to server"}
                     >
-                      {aiApplyingStatus ? "Saving..." : "Save Status"}
+                      {aiApplyingStatus ? "Saving..." : "Save to Server"}
                     </button>
                   </div>
 
                   {!canWrite && (
-                    <div style={{ marginTop: 8, color: "#b91c1c", fontWeight: 800, fontSize: 13 }}>
-                      Read-only: you can see AI suggestion, but you cannot save status.
-                    </div>
+                    <p style={{ margin: "10px 0 0", fontSize: 12, color: "#b91c1c", fontWeight: 600 }}>
+                      Read-only access: Cannot save status changes
+                    </p>
                   )}
+                </div>
+
+                {/* Quick Actions */}
+                <div style={{ display: "grid", gap: 8 }}>
+                  <strong style={{ fontSize: 13, color: "#666" }}>Quick Actions</strong>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAiQuestion(
+                          "Based on comments, tell me the best next step and whether status should change."
+                        )
+                      }
+                      disabled={aiLoading}
+                      style={{
+                        border: "1px solid rgba(0, 0, 0, 0.08)",
+                        background: "#fff",
+                        color: "#333",
+                        padding: "10px 14px",
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8f9fa")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                    >
+                      <MessageSquare size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                      Suggest next steps
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAiQuestion("Summarize the progress from comments and recommend status.")
+                      }
+                      disabled={aiLoading}
+                      style={{
+                        border: "1px solid rgba(0, 0, 0, 0.08)",
+                        background: "#fff",
+                        color: "#333",
+                        padding: "10px 14px",
+                        borderRadius: 10,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8f9fa")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "#fff")}
+                    >
+                      <RefreshCw size={16} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                      Summarize progress
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* Right: response */}
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  borderLeft: "1px solid rgba(0,0,0,0.08)",
-                  paddingLeft: 16,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <Sparkles size={18} />
+              {/* Right Panel - Response */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <Sparkles size={18} style={{ color: "#E60000" }} />
                   <strong style={{ fontSize: 15 }}>AI Response</strong>
                 </div>
 
-                {/* Reply box */}
+                {/* Reply */}
                 <div
                   style={{
-                    padding: 12,
-                    borderRadius: 14,
-                    border: "1px solid rgba(0,0,0,0.10)",
-                    background: "rgba(0,0,0,0.02)",
-                    minHeight: 160,
+                    padding: 16,
+                    borderRadius: 12,
+                    background: "#fff",
+                    border: "1px solid rgba(0, 0, 0, 0.08)",
+                    minHeight: 120,
                   }}
                 >
-                  <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>Reply</div>
-                  <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                    {aiReply || "Ask a question to generate a reply…"}
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#E60000" }}>
+                    Response
+                  </div>
+                  <div style={{ fontSize: 14, lineHeight: 1.7, whiteSpace: "pre-wrap", color: "#333" }}>
+                    {aiReply || "Ask a question to get AI insights..."}
                   </div>
                 </div>
 
-                {/* Clarifying */}
+                {/* Clarifying Question */}
                 {aiClarify && (
                   <div
                     style={{
-                      padding: 12,
-                      borderRadius: 14,
-                      border: "1px solid rgba(124,45,18,0.18)",
-                      background: "rgba(124,45,18,0.06)",
+                      padding: 14,
+                      borderRadius: 12,
+                      background: "#fff4e5",
+                      border: "1px solid #ffc966",
                       color: "#7c2d12",
-                      fontSize: 14,
-                      lineHeight: 1.6,
                     }}
                   >
-                    <strong>Clarifying question:</strong> {aiClarify}
+                    <strong style={{ fontSize: 13 }}>Clarifying Question:</strong>
+                    <p style={{ margin: "6px 0 0", fontSize: 14, lineHeight: 1.6 }}>{aiClarify}</p>
                   </div>
                 )}
 
                 {/* Steps */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-                  <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>
-                    Steps (editable)
-                  </div>
+                  <strong style={{ fontSize: 13, marginBottom: 10, color: "#666" }}>
+                    Recommended Steps
+                  </strong>
                   <textarea
                     value={aiStepsText}
                     onChange={(e) => setAiStepsText(e.target.value)}
-                    placeholder="AI steps will appear here…"
+                    placeholder="Step-by-step guidance will appear here..."
                     disabled={aiLoading}
                     style={{
                       width: "100%",
                       flex: 1,
-                      minHeight: 220,
+                      minHeight: 200,
                       resize: "none",
-                      padding: 12,
-                      borderRadius: 14,
-                      border: "1px solid rgba(0,0,0,0.14)",
+                      padding: 14,
+                      borderRadius: 12,
+                      border: "1px solid rgba(0, 0, 0, 0.12)",
                       fontSize: 14,
                       lineHeight: 1.7,
+                      fontFamily: "inherit",
                       background: "#fff",
                     }}
                   />
-                </div>
-
-                {/* Quick suggestion buttons */}
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="status-save-btn"
-                    onClick={() =>
-                      setAiQuestion(
-                        "Based on comments, tell me the best next step and whether status should change."
-                      )
-                    }
-                    style={{ padding: "10px 14px" }}
-                    disabled={aiLoading}
-                  >
-                    <MessageSquare size={18} /> Next step + status
-                  </button>
-
-                  <button
-                    type="button"
-                    className="status-save-btn"
-                    onClick={() =>
-                      setAiQuestion(
-                        "Summarize the progress from comments and recommend status."
-                      )
-                    }
-                    style={{ padding: "10px 14px" }}
-                    disabled={aiLoading}
-                  >
-                    <Sparkles size={18} /> Summarize + status
-                  </button>
                 </div>
               </div>
             </div>
@@ -1283,6 +1352,33 @@ User Question: ${q}
       )}
 
       <Footer />
+
+      <style>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .saving-spinner {
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

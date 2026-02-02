@@ -15,6 +15,18 @@ import CreateTicket from "../src/pages/CreateTicket";
 import Notifications from "../src/pages/Notifications";
 import SLAPage from "../src/pages/SLAPage";
 
+// Sidebar navigation pages
+import ActiveTickets from "../src/pages/ActiveTickets";
+import PendingTasks from "../src/pages/PendingTasks";
+import CompletedTickets from "../src/pages/CompletedTickets";
+import TeamProjects from "../src/pages/TeamProjects";
+import ArchivedTickets from "../src/pages/ArchivedTickets";
+import RecentUpdates from "../src/pages/RecentUpdates";
+import Favorites from "../src/pages/Favorites";
+import RecycleBin from "../src/pages/RecycleBin";
+import SharedTeam from "../src/pages/SharedTeam";
+import SharedTraining from "../src/pages/SharedTraining";
+
 import AuthLayout from "../src/layouts/AuthLayout";
 import DashboardLayout from "../src/layouts/DashboardLayout";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -56,6 +68,18 @@ export default function AppRoutes() {
 
         {/* profile */}
         <Route path="profile/:id" element={<Profile />} />
+
+        {/* sidebar navigation pages */}
+        <Route path="active-tickets" element={<ActiveTickets />} />
+        <Route path="pending-tasks" element={<PendingTasks />} />
+        <Route path="completed" element={<CompletedTickets />} />
+        <Route path="team-projects" element={<TeamProjects />} />
+        <Route path="archived" element={<ArchivedTickets />} />
+        <Route path="recent-updates" element={<RecentUpdates />} />
+        <Route path="favorites" element={<Favorites />} />
+        <Route path="recycle-bin" element={<RecycleBin />} />
+        <Route path="shared/team" element={<SharedTeam />} />
+        <Route path="shared/training" element={<SharedTraining />} />
       </Route>
 
       {/* fallback */}

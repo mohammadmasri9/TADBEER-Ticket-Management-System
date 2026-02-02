@@ -51,6 +51,13 @@ export interface ITicket extends Document {
 
   closedAt?: Date;
 
+  // ✅ Soft delete for recycle bin
+  deletedAt?: Date;
+  deletedBy?: Types.ObjectId;
+
+  // ✅ Favorites tracking (array of user IDs who favorited this ticket)
+  favoritedBy?: Types.ObjectId[];
+
   createdAt: Date;
   updatedAt: Date;
 }
@@ -119,6 +126,13 @@ const TicketSchema = new Schema<ITicket>(
     satisfactionRating: { type: Number, min: 1, max: 5 },
 
     closedAt: { type: Date },
+
+    // ✅ Soft delete for recycle bin
+    deletedAt: { type: Date, default: null },
+    deletedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+
+    // ✅ Favorites tracking
+    favoritedBy: { type: [Schema.Types.ObjectId], ref: "User", default: [] },
   },
   { timestamps: true }
 );
@@ -135,6 +149,10 @@ TicketSchema.index({ departmentId: 1, createdAt: -1 });
 
 // ✅ Watchers index
 TicketSchema.index({ "watchers.userId": 1, createdAt: -1 });
+
+// ✅ Soft delete and favorites indexes
+TicketSchema.index({ deletedAt: 1, deletedBy: 1 });
+TicketSchema.index({ favoritedBy: 1 });
 
 // Force collection name "Tickets"
 const Ticket: Model<ITicket> =

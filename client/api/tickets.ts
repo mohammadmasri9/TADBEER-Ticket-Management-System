@@ -137,6 +137,89 @@ export async function removeWatcher(ticketId: string, userId: string) {
   return res.data as TicketDTO;
 }
 
+// ✅ Statistics
+export async function getTicketStats() {
+  const res = await api.get("/api/tickets/stats");
+  return res.data as {
+    total: number;
+    open: number;
+    inProgress: number;
+    pending: number;
+    resolved: number;
+    closed: number;
+    urgent: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+}
+
+// ✅ Favorites
+export async function getFavorites() {
+  // Backend doesn't have a specific endpoint, so we filter on frontend
+  // Or we could add a query param like ?favorited=true
+  const res = await api.get("/api/tickets");
+  const tickets = (Array.isArray(res.data) ? res.data : []) as TicketDTO[];
+  // Filter will be done on the frontend based on favoritedBy field
+  return tickets;
+}
+
+export async function toggleFavorite(ticketId: string) {
+  const res = await api.post(`/api/tickets/${ticketId}/favorite`);
+  return res.data as { ticket: TicketDTO; isFavorited: boolean };
+}
+
+// ✅ Recycle Bin
+export async function getRecycleBin() {
+  const res = await api.get("/api/tickets", { params: { deleted: "true" } });
+  return (Array.isArray(res.data) ? res.data : []) as TicketDTO[];
+}
+
+export async function restoreTicket(ticketId: string) {
+  const res = await api.post(`/api/tickets/${ticketId}/restore`);
+  return res.data as { message: string; ticket: TicketDTO };
+}
+
+export async function permanentDelete(ticketId: string) {
+  const res = await api.delete(`/api/tickets/${ticketId}/permanent`);
+  return res.data as { message: string };
+}
+
+// ✅ Archived Tickets
+export async function getArchivedTickets() {
+  const res = await api.get("/api/tickets", { params: { archived: "true" } });
+  return (Array.isArray(res.data) ? res.data : []) as TicketDTO[];
+}
+
+// ✅ Pending Tickets
+export async function getPendingTickets() {
+  return getTickets({ status: "pending" });
+}
+
+// ✅ Completed Tickets
+export async function getCompletedTickets() {
+  const res = await api.get("/api/tickets", { params: { status: "resolved,closed" } });
+  return (Array.isArray(res.data) ? res.data : []) as TicketDTO[];
+}
+
+// ✅ Active Tickets (open + in-progress)
+export async function getActiveTickets() {
+  const res = await api.get("/api/tickets", { params: { status: "open,in-progress" } });
+  return (Array.isArray(res.data) ? res.data : []) as TicketDTO[];
+}
+
+// ✅ Recent Updates (sorted by updatedAt)
+export async function getRecentUpdates() {
+  const tickets = await getTickets();
+  return tickets.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+}
+
+// ✅ Team Projects (tickets with multiple watchers)
+export async function getTeamProjects() {
+  const tickets = await getTickets();
+  return tickets.filter((t) => (t.watchers?.length || 0) > 1);
+}
+
 // Optional view helpers (only work if backend supports ?view=...)
 export async function getMyCreatedTickets() {
   return getTickets({ view: "created" });
@@ -147,3 +230,4 @@ export async function getAssignedToMeTickets() {
 export async function getWatchingTickets() {
   return getTickets({ view: "watching" });
 }
+

@@ -21,11 +21,11 @@ const isValidObjectId = (id: string) => mongoose.isValidObjectId(id);
 function getUserId(req: any): string {
   return String(
     req.user?.userId ||
-      req.user?._id ||
-      req.user?.id ||
-      req.user?.uid ||
-      req.user?.sub ||
-      ""
+    req.user?._id ||
+    req.user?.id ||
+    req.user?.uid ||
+    req.user?.sub ||
+    ""
   );
 }
 
@@ -170,6 +170,48 @@ router.get("/inbox", requireRole("manager", "admin"), async (req: any, res) => {
   });
 
   res.json(sorted);
+});
+
+/**
+ * ✅ GET /api/tickets/stats
+ * Returns aggregated statistics for the current user
+ */
+router.get("/stats", async (req: any, res) => {
+  const role = getUserRole(req);
+  const uid = getUserId(req);
+  const myDeptId = getUserDeptId(req);
+
+  if (!uid || !isValidObjectId(uid)) {
+    return res.status(401).json({ message: "Invalid auth user id" });
+  }
+
+  const filter: any = { deletedAt: null };
+
+  // Apply role-based filtering
+  if (role === "admin") {
+    // no extra filter - see all tickets
+  } else if (role === "manager") {
+    if (myDeptId) filter.departmentId = myDeptId;
+  } else {
+    filter.$or = [{ createdBy: uid }, { assignee: uid }, { "watchers.userId": uid }];
+  }
+
+  const tickets = await Ticket.find(filter);
+
+  const stats = {
+    total: tickets.length,
+    open: tickets.filter((t) => t.status === "open").length,
+    inProgress: tickets.filter((t) => t.status === "in-progress").length,
+    pending: tickets.filter((t) => t.status === "pending").length,
+    resolved: tickets.filter((t) => t.status === "resolved").length,
+    closed: tickets.filter((t) => t.status === "closed").length,
+    urgent: tickets.filter((t) => t.priority === "urgent").length,
+    high: tickets.filter((t) => t.priority === "high").length,
+    medium: tickets.filter((t) => t.priority === "medium").length,
+    low: tickets.filter((t) => t.priority === "low").length,
+  };
+
+  res.json(stats);
 });
 
 /**
@@ -386,9 +428,10 @@ router.delete("/:id/watchers/:userId", requireRole("manager", "admin"), async (r
 /**
  * ✅ GET /api/tickets
  * ✅ Supports view=created|assigned|watching
+ * ✅ Supports deleted=true to show deleted tickets
  */
 router.get("/", async (req: any, res) => {
-  const { status, priority, category, assignee, createdBy, departmentId, view } = req.query;
+  const { status, priority, category, assignee, createdBy, departmentId, view, deleted, archived } = req.query;
 
   const role = getUserRole(req);
   const uid = getUserId(req);
@@ -410,6 +453,14 @@ router.get("/", async (req: any, res) => {
   }
 
   const filter: any = {};
+
+  // ✅ Deleted tickets filter
+  if (deleted === "true") {
+    filter.deletedAt = { $ne: null };
+  } else {
+    filter.deletedAt = null; // exclude deleted by default
+  }
+
   if (status) filter.status = status;
   if (priority) filter.priority = priority;
   if (category) filter.category = category;
@@ -419,6 +470,14 @@ router.get("/", async (req: any, res) => {
 
   if (departmentId && isValidObjectId(String(departmentId)) && role === "admin") {
     filter.departmentId = departmentId;
+  }
+
+  // ✅ Archived filter (closed tickets older than 30 days)
+  if (archived === "true") {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    filter.status = { $in: ["resolved", "closed"] };
+    filter.closedAt = { $lt: thirtyDaysAgo };
   }
 
   // ✅ view overrides role default scope
@@ -719,10 +778,114 @@ router.patch("/:id/status", async (req: any, res) => {
   }
 });
 
+/**
+ * ✅ POST /api/tickets/:id/favorite
+ * Toggle favorite status for a ticket
+ */
+router.post("/:id/favorite", async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
+
+    const uid = getUserId(req);
+    if (!uid || !isValidObjectId(uid)) {
+      return res.status(401).json({ message: "Invalid auth user id" });
+    }
+
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+    if (!ensureTicketAccess(req, ticket)) return res.status(403).json({ message: "Forbidden" });
+
+    const favoritedBy = ((ticket as any).favoritedBy || []) as any[];
+    const isFavorited = favoritedBy.some((fid: any) => normalizeId(fid) === String(uid));
+
+    if (isFavorited) {
+      // Remove from favorites
+      (ticket as any).favoritedBy = favoritedBy.filter((fid: any) => normalizeId(fid) !== String(uid));
+    } else {
+      // Add to favorites
+      favoritedBy.push(new mongoose.Types.ObjectId(uid));
+      (ticket as any).favoritedBy = favoritedBy;
+    }
+
+    await ticket.save();
+
+    const full = await Ticket.findById(ticket._id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
+
+    res.json({ ticket: full, isFavorited: !isFavorited });
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+/**
+ * ✅ DELETE /api/tickets/:id (Soft Delete)
+ * Move ticket to recycle bin
+ */
 router.delete("/:id", requireRole("admin", "manager"), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
+
+    const uid = getUserId(req);
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+
+    // Soft delete
+    (ticket as any).deletedAt = new Date();
+    (ticket as any).deletedBy = new mongoose.Types.ObjectId(uid);
+    await ticket.save();
+
+    res.json({ message: "Ticket moved to recycle bin", ticketId: id });
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+/**
+ * ✅ POST /api/tickets/:id/restore
+ * Restore ticket from recycle bin
+ */
+router.post("/:id/restore", requireRole("admin", "manager"), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid ticket id" });
+
+    const ticket = await Ticket.findById(id);
+    if (!ticket) return res.status(404).json({ message: "Ticket not found" });
+    if (!(ticket as any).deletedAt) {
+      return res.status(400).json({ message: "Ticket is not deleted" });
+    }
+
+    // Restore
+    (ticket as any).deletedAt = null;
+    (ticket as any).deletedBy = null;
+    await ticket.save();
+
+    const full = await Ticket.findById(ticket._id)
+      .populate("createdBy", "name email role departmentId department")
+      .populate("assignee", "name email role departmentId department")
+      .populate("departmentId", "name managerId")
+      .populate("watchers.userId", "name email role departmentId department");
+
+    res.json({ message: "Ticket restored", ticket: full });
+  } catch (err: any) {
+    return res.status(500).json({ message: err.message || "Server error" });
+  }
+});
+
+/**
+ * ✅ DELETE /api/tickets/:id/permanent
+ * Permanently delete ticket from recycle bin
+ */
+router.delete("/:id/permanent", requireRole("admin", "manager"), async (req: any, res) => {
   const deleted = await Ticket.findByIdAndDelete(req.params.id);
   if (!deleted) return res.status(404).json({ message: "Ticket not found" });
-  res.json({ message: "Ticket deleted" });
+  res.json({ message: "Ticket permanently deleted" });
 });
 
 export default router;
