@@ -9,13 +9,16 @@ import {
   Filter,
   ChevronDown,
   Users,
-  Tag,
   Calendar,
   ClipboardList,
   UserCheck,
   Eye,
   Repeat,
   X,
+  Star,
+  MoreVertical,
+  Archive,
+  Trash2,
 } from "lucide-react";
 
 import { getTickets, TicketDTO } from "../../api/tickets";
@@ -43,12 +46,66 @@ interface DashboardStats {
 }
 
 /* =========================
+   LOCAL STORAGE STORE
+========================= */
+const LS_KEY = "tadbeer_ticket_actions_v1";
+
+type TicketActionState = {
+  favorites: string[];
+  archived: string[];
+  deleted: string[];
+};
+
+const safeParse = <T,>(val: string | null, fallback: T): T => {
+  try {
+    return val ? (JSON.parse(val) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const getActionState = (): TicketActionState =>
+  safeParse<TicketActionState>(localStorage.getItem(LS_KEY), {
+    favorites: [],
+    archived: [],
+    deleted: [],
+  });
+
+const setActionState = (next: TicketActionState) => {
+  localStorage.setItem(LS_KEY, JSON.stringify(next));
+};
+
+const includesId = (list: string[], id: string) => list.includes(id);
+
+const toggleFavoriteLS = (id: string) => {
+  const s = getActionState();
+  const favorites = includesId(s.favorites, id)
+    ? s.favorites.filter((x) => x !== id)
+    : [...s.favorites, id];
+  setActionState({ ...s, favorites });
+};
+
+const archiveTicketLS = (id: string) => {
+  const s = getActionState();
+  if (includesId(s.deleted, id)) return; // don't archive deleted
+  if (!includesId(s.archived, id)) setActionState({ ...s, archived: [...s.archived, id] });
+};
+
+const deleteTicketSoftLS = (id: string) => {
+  const s = getActionState();
+  const deleted = includesId(s.deleted, id) ? s.deleted : [...s.deleted, id];
+  // when deleted -> remove from archived + favorites
+  const archived = s.archived.filter((x) => x !== id);
+  const favorites = s.favorites.filter((x) => x !== id);
+  setActionState({ favorites, archived, deleted });
+};
+
+/* =========================
    UTILS
 ========================= */
 const normalizeId = (val: any): string => {
   if (!val) return "";
-  const fromObj =
-    val?._id ?? val?.id ?? val?.userId ?? val?.uid ?? val?.value ?? val?.user?._id;
+  const fromObj = val?._id ?? val?.id ?? val?.userId ?? val?.uid ?? val?.value ?? val?.user?._id;
   const raw = fromObj ?? val;
 
   try {
@@ -62,18 +119,6 @@ const isSameId = (a: any, b: any): boolean => {
   const A = normalizeId(a);
   const B = normalizeId(b);
   return !!A && !!B && A === B;
-};
-
-const formatDate = (dateString: string): string => {
-  const date = new Date(dateString);
-  const now = new Date();
-  const diffTime = Math.abs(now.getTime() - date.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
 /* =========================
@@ -100,53 +145,190 @@ const StatCard: React.FC<StatCardProps> = ({ icon, value, label, onClick }) => (
 interface TicketListItemProps {
   ticket: TicketDTO;
   onClick: () => void;
+  onActionDone: () => void; // refresh list state
 }
-const TicketListItem: React.FC<TicketListItemProps> = ({ ticket, onClick }) => (
-  <button className="dashListItem" onClick={onClick} type="button">
-    {/* Header with priority badge */}
-    <div className="ticket-card-header">
-      <span className={`priority-badge ${ticket.priority}`}>
-        {ticket.priority === 'urgent' }
-        {ticket.priority === 'high' } 
-        {ticket.priority === 'medium'}
-        {ticket.priority === 'low'}
-        <span className="priority-text">{ticket.priority} Priority</span>
-      </span>
-      <span className="ticket-number">Ticket# {ticket._id?.slice(-6) || 'N/A'}</span>
-    </div>
 
-    {/* Title */}
-    <h3 className="ticket-card-title">{ticket.title}</h3>
+const TicketListItem: React.FC<TicketListItemProps> = ({ ticket, onClick, onActionDone }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const ticketId = String(ticket._id || "");
 
-    {/* Description Preview */}
-    <p className="ticket-card-description">
-      {ticket.description?.substring(0, 120) || 'No description available'}
-      {ticket.description && ticket.description.length > 120 && '...'}
-    </p>
+  const state = useMemo(() => getActionState(), [menuOpen, ticketId]);
+  const isFav = state.favorites.includes(ticketId);
 
-    {/* Footer */}
-    <div className="ticket-card-footer">
-      <div className="ticket-meta-left">
-        <span className="ticket-assignee">
-          <UserCheck size={14} aria-hidden="true" />
-          {ticket.assignee?.name || ticket.assignee?.email || 'Unassigned'}
+  const stop = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleToggleFav = (e: React.MouseEvent) => {
+    stop(e);
+    toggleFavoriteLS(ticketId);
+    onActionDone();
+  };
+
+  const handleArchive = (e: React.MouseEvent) => {
+    stop(e);
+    archiveTicketLS(ticketId);
+    setMenuOpen(false);
+    onActionDone();
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    stop(e);
+    if (confirm("Move this ticket to Recycle Bin?")) {
+      deleteTicketSoftLS(ticketId);
+      setMenuOpen(false);
+      onActionDone();
+    }
+  };
+
+  return (
+    <button className="dashListItem" onClick={onClick} type="button">
+      {/* Header */}
+      <div className="ticket-card-header" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span className={`priority-badge ${ticket.priority}`}>
+          <span className="priority-text">{ticket.priority} Priority</span>
         </span>
-        <span className="ticket-date">
-          <Calendar size={14} aria-hidden="true" />
-          Posted at {new Date(ticket.createdAt).toLocaleTimeString('en-US', { 
-            hour: 'numeric', 
-            minute: '2-digit', 
-            hour12: true 
-          })}
+
+        <span className="ticket-number" style={{ marginLeft: "auto" }}>
+          Ticket# {ticket._id?.slice(-6) || "N/A"}
         </span>
+
+        {/* ⭐ Favorite */}
+        <button
+          type="button"
+          onClick={handleToggleFav}
+          title={isFav ? "Unfavorite" : "Favorite"}
+          aria-label={isFav ? "Unfavorite ticket" : "Favorite ticket"}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 4,
+          }}
+        >
+          <Star size={18} fill={isFav ? "currentColor" : "none"} />
+        </button>
+
+        {/* ⋮ Menu */}
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            onClick={(e) => {
+              stop(e);
+              setMenuOpen((v) => !v);
+            }}
+            aria-label="Ticket actions"
+            title="Actions"
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 4,
+            }}
+          >
+            <MoreVertical size={18} />
+          </button>
+
+          {menuOpen && (
+            <div
+              role="menu"
+              style={{
+                position: "absolute",
+                top: 26,
+                right: 0,
+                background: "#fff",
+                border: "1px solid rgba(0,0,0,0.08)",
+                borderRadius: 10,
+                boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
+                minWidth: 160,
+                zIndex: 50,
+                overflow: "hidden",
+              }}
+              onClick={(e) => stop(e as any)}
+            >
+              <button
+                type="button"
+                onClick={handleArchive}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "none",
+                  background: "transparent",
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <Archive size={16} />
+                Archive
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDelete}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "none",
+                  background: "transparent",
+                  display: "flex",
+                  gap: 8,
+                  alignItems: "center",
+                  cursor: "pointer",
+                  color: "#b42318",
+                }}
+              >
+                <Trash2 size={16} />
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-      <button className="open-ticket-btn" type="button">
-        Open Ticket
-      </button>
-    </div>
-  </button>
-);
 
+      {/* Title */}
+      <h3 className="ticket-card-title">{ticket.title}</h3>
+
+      {/* Description */}
+      <p className="ticket-card-description">
+        {ticket.description?.substring(0, 120) || "No description available"}
+        {ticket.description && ticket.description.length > 120 && "..."}
+      </p>
+
+      {/* Footer */}
+      <div className="ticket-card-footer">
+        <div className="ticket-meta-left">
+          <span className="ticket-assignee">
+            <UserCheck size={14} aria-hidden="true" />
+            {ticket.assignee?.name || ticket.assignee?.email || "Unassigned"}
+          </span>
+
+          <span className="ticket-date">
+            <Calendar size={14} aria-hidden="true" />
+            Posted at{" "}
+            {new Date(ticket.createdAt).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            })}
+          </span>
+        </div>
+
+        <button className="open-ticket-btn" type="button" onClick={(e) => e.stopPropagation()}>
+          Open Ticket
+        </button>
+      </div>
+    </button>
+  );
+};
 
 interface ScopeSelectorProps {
   scope: TicketScope;
@@ -159,14 +341,7 @@ const ScopeSelector: React.FC<ScopeSelectorProps> = ({ scope, onScopeChange, isM
       { value: "created", label: "Created by Me", icon: <ClipboardList size={16} />, show: true },
       { value: "assigned", label: "Assigned to Me", icon: <UserCheck size={16} />, show: true },
       { value: "watching", label: "Watching", icon: <Eye size={16} />, show: true },
-
-      // ✅ only managers should see this
-      {
-        value: "reassigned",
-        label: "Reassigned by Me",
-        icon: <Repeat size={16} />,
-        show: isManager,
-      },
+      { value: "reassigned", label: "Reassigned by Me", icon: <Repeat size={16} />, show: isManager },
     ];
 
   return (
@@ -195,12 +370,7 @@ interface FilterPanelProps {
   onClose: () => void;
   onReset: () => void;
 }
-const FilterPanel: React.FC<FilterPanelProps> = ({
-  statusFilter,
-  onFilterChange,
-  onClose,
-  onReset,
-}) => {
+const FilterPanel: React.FC<FilterPanelProps> = ({ statusFilter, onFilterChange, onClose, onReset }) => {
   const statuses: TicketStatus[] = ["open", "in-progress", "pending", "resolved", "closed"];
 
   const handleCheckboxChange = (status: TicketStatus, checked: boolean) => {
@@ -249,7 +419,6 @@ const Dashboard: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  // ✅ keep it TS-safe
   const u: any = user as any;
 
   const myId = useMemo(() => normalizeId(u?.userId ?? u?.id ?? u?._id ?? u?.uid), [u]);
@@ -270,6 +439,10 @@ const Dashboard: React.FC = () => {
     closed: false,
   });
 
+  // used to refresh UI when localStorage changes
+  const [actionsVersion, setActionsVersion] = useState(0);
+  const refreshActions = () => setActionsVersion((v) => v + 1);
+
   const scopeLabel = useMemo(() => {
     const labels: Record<TicketScope, string> = {
       created: "Created by Me",
@@ -280,32 +453,18 @@ const Dashboard: React.FC = () => {
     return labels[scope];
   }, [scope]);
 
-  /**
-   * ✅ scopedTickets
-   * - created/assigned/watching uses backend view
-   * - reassigned is frontend-only filter (based on watchers.addedBy)
-   */
   const scopedTickets = useMemo(() => {
     if (!myId) return [];
 
     if (scope === "reassigned") {
-      // tickets where I (manager) added watchers entries (usually when assigning/reassigning)
       return tickets.filter((t: any) => {
         const watchers = (t.watchers || []) as any[];
-
-        // ✅ "addedBy" exists in your schema when adding watchers
-        // ticket qualifies if any watcher was added by me
         const addedByMe = watchers.some((w) => isSameId(w?.addedBy, myId));
-
-        // optional: do not count tickets where the watcher is me
-        // (you can remove this if you want to also include self-watching)
         const watcherIsMe = watchers.some((w) => isSameId(w?.userId ?? w, myId));
-
         return addedByMe && !watcherIsMe;
       });
     }
 
-    // fallback safety filters (even though backend view returns correct list)
     if (scope === "created") return tickets.filter((t: any) => isSameId(t.createdBy, myId));
     if (scope === "assigned") return tickets.filter((t: any) => isSameId(t.assignee, myId));
     if (scope === "watching")
@@ -327,18 +486,15 @@ const Dashboard: React.FC = () => {
   }, [scopedTickets]);
 
   const recentTickets = useMemo(() => {
+    const s = getActionState();
     return scopedTickets
       .filter((t) => statusFilter[t.status as TicketStatus])
+      .filter((t) => !s.archived.includes(String(t._id)) && !s.deleted.includes(String(t._id))) // ✅ hide archived/deleted
       .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
       .slice(0, 10);
-  }, [scopedTickets, statusFilter]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedTickets, statusFilter, actionsVersion]);
 
-  /**
-   * ✅ Fetch tickets:
-   * - for reassigned: fetch a broad set so we can filter locally.
-   *   easiest: manager already gets dept tickets by default.
-   * - for other scopes: backend view.
-   */
   useEffect(() => {
     let mounted = true;
 
@@ -347,11 +503,7 @@ const Dashboard: React.FC = () => {
         setLoading(true);
         setError("");
 
-        const params =
-          scope === "reassigned"
-            ? undefined // manager default scope = department tickets
-            : { view: scope };
-
+        const params = scope === "reassigned" ? undefined : { view: scope };
         const data = await getTickets(params as any);
 
         if (!mounted) return;
@@ -383,7 +535,6 @@ const Dashboard: React.FC = () => {
 
   const handleRetry = () => window.location.reload();
 
-  // ✅ if not manager and user somehow is on "reassigned", fallback to created
   useEffect(() => {
     if (!isManager && scope === "reassigned") setScope("created");
   }, [isManager, scope]);
@@ -401,68 +552,32 @@ const Dashboard: React.FC = () => {
 
         <section className="stats-section" aria-label="Ticket statistics">
           <div className="stats-grid">
-            <StatCard
-              icon={<CheckSquare size={24} />}
-              value={stats.total}
-              label={scopeLabel}
-              onClick={() => navigate("/tickets")}
-            />
-            <StatCard
-              icon={<Clock size={24} />}
-              value={stats.open}
-              label="Open"
-              onClick={() => navigate("/tickets?status=open")}
-            />
-            <StatCard
-              icon={<TrendingUp size={24} />}
-              value={stats.inProgress}
-              label="In Progress"
-              onClick={() => navigate("/tickets?status=in-progress")}
-            />
-            <StatCard
-              icon={<Info size={24} />}
-              value={stats.urgent}
-              label="Urgent"
-              onClick={() => navigate("/tickets?priority=urgent")}
-            />
+            <StatCard icon={<CheckSquare size={24} />} value={stats.total} label={scopeLabel} onClick={() => navigate("/tickets")} />
+            <StatCard icon={<Clock size={24} />} value={stats.open} label="Open" onClick={() => navigate("/tickets?status=open")} />
+            <StatCard icon={<TrendingUp size={24} />} value={stats.inProgress} label="In Progress" onClick={() => navigate("/tickets?status=in-progress")} />
+            <StatCard icon={<Info size={24} />} value={stats.urgent} label="Urgent" onClick={() => navigate("/tickets?priority=urgent")} />
           </div>
         </section>
 
         <div className="section-header">
           <div className="tabs" role="tablist">
-            <button
-              className={`tab ${activeTab === "overview" ? "active" : ""}`}
-              onClick={() => setActiveTab("overview")}
-              type="button"
-            >
+            <button className={`tab ${activeTab === "overview" ? "active" : ""}`} onClick={() => setActiveTab("overview")} type="button">
               Overview
               {activeTab === "overview" && <ChevronDown size={16} strokeWidth={2.5} />}
             </button>
 
-            <button
-              className={`tab ${activeTab === "recent" ? "active" : ""}`}
-              onClick={() => setActiveTab("recent")}
-              type="button"
-            >
+            <button className={`tab ${activeTab === "recent" ? "active" : ""}`} onClick={() => setActiveTab("recent")} type="button">
               Recent ({scopeLabel})
             </button>
 
-            <button
-              className={`tab ${activeTab === "team" ? "active" : ""}`}
-              onClick={() => setActiveTab("team")}
-              type="button"
-            >
+            <button className={`tab ${activeTab === "team" ? "active" : ""}`} onClick={() => setActiveTab("team")} type="button">
               Team
             </button>
           </div>
 
           {activeTab === "recent" && (
             <div className="section-actions">
-              <button
-                className={`filter-btn ${filterOpen ? "active" : ""}`}
-                onClick={() => setFilterOpen(!filterOpen)}
-                type="button"
-              >
+              <button className={`filter-btn ${filterOpen ? "active" : ""}`} onClick={() => setFilterOpen(!filterOpen)} type="button">
                 <Filter size={18} strokeWidth={2} />
                 Filter
               </button>
@@ -471,12 +586,7 @@ const Dashboard: React.FC = () => {
         </div>
 
         {filterOpen && activeTab === "recent" && (
-          <FilterPanel
-            statusFilter={statusFilter}
-            onFilterChange={setStatusFilter}
-            onClose={() => setFilterOpen(false)}
-            onReset={handleFilterReset}
-          />
+          <FilterPanel statusFilter={statusFilter} onFilterChange={setStatusFilter} onClose={() => setFilterOpen(false)} onReset={handleFilterReset} />
         )}
 
         {loading ? (
@@ -504,11 +614,7 @@ const Dashboard: React.FC = () => {
                 </div>
 
                 <div className="quick-actions-grid">
-                  <button
-                    className="quick-action-btn"
-                    onClick={() => navigate("/create-ticket")}
-                    type="button"
-                  >
+                  <button className="quick-action-btn" onClick={() => navigate("/create-ticket")} type="button">
                     <CheckSquare size={28} strokeWidth={2} />
                     <span>Create Ticket</span>
                   </button>
@@ -518,11 +624,7 @@ const Dashboard: React.FC = () => {
                     <span>All Tickets</span>
                   </button>
 
-                  <button
-                    className="quick-action-btn"
-                    onClick={() => navigate("/user-management")}
-                    type="button"
-                  >
+                  <button className="quick-action-btn" onClick={() => navigate("/user-management")} type="button">
                     <Users size={28} strokeWidth={2} />
                     <span>User Management</span>
                   </button>
@@ -557,6 +659,7 @@ const Dashboard: React.FC = () => {
                         key={ticket._id}
                         ticket={ticket}
                         onClick={() => navigate(`/tickets/${ticket._id}`)}
+                        onActionDone={refreshActions}
                       />
                     ))}
                   </div>
